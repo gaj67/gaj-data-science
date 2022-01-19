@@ -1,0 +1,131 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx,subcaption}
+\usepackage{amsmath,amsfonts}
+\title{Notes on Optimisation}
+\author{G.A. Jarrad}
+\begin{document}
+\maketitle
+\numberwithin{equation}{section}
+\numberwithin{figure}{section}
+\numberwithin{table}{section}
+\section{Introduction}\label{sec:intro}
+blah, blah, blah
+
+\section{Recursive Least Square Error Estimation}
+Consider using least square error optimisation to approximately fit the linear coefficient model
+\begin{eqnarray}
+   y & = & \vec{a}\cdot\vec{x}+\varepsilon
+\label{eq:y_ax}
+\end{eqnarray}
+to the data $\left\{(\vec{x}_t,y_t)\;|\;t=1,2,\ldots,n\right\}$.
+The square error is given by
+\begin{eqnarray}
+   S_n & = & \sum_{t=1}^n(y_t-\vec{a}\cdot\vec{x}_t)^2
+\end{eqnarray}
+and hence
+\begin{eqnarray}
+   \frac{\partial S_n}{\partial\vec{a}} & = & -2\sum_{t=1}^n(y_t-\vec{a}\cdot\vec{x}_t)\vec{x}_t\,.
+\end{eqnarray}
+The turning point $\hat{\vec{a}}_n$ then occurs when
+\begin{eqnarray}
+   \sum_{t=1}^n y_t\vec{x}_t = \sum_{t=1}^n\vec{x}_t\vec{x}_t^{T}\hat{\vec{a}}_n\,,
+\label{eq:yx_xxa_n}
+\end{eqnarray}
+and thus $S_n$ is maximised when
+\begin{eqnarray}
+   \hat{\vec{a}}_n = \left(\sum_{t=1}^n\vec{x}_t\vec{x}_t^{T}\right)^{-1}\sum_{t=1}^n y_t\vec{x}_t\,.
+\end{eqnarray}
+
+Suppose now that another data point $(y_{n+1},\vec{x}_{n+1})$ is given. Then the new least square error estimate
+is given by
+\begin{eqnarray}
+   \hat{\vec{a}}_{n+1} = \left(\sum_{t=1}^{n+1}\vec{x}_t\vec{x}_t^{T}\right)^{-1}\sum_{t=1}^{n+1} y_t\vec{x}_t\,,
+\label{eq:yx_xxa_np1}
+\end{eqnarray}
+which appears to require yet another matrix inverse. However, this secondary inverse can avoided by using recursive estimation
+of the form
+\begin{eqnarray}
+   P_{n+1} & = & \left(\sum_{t=1}^{n+1}\vec{x}_t\vec{x}_t^{T}\right)^{-1}
+\nonumber\\
+  & = & \left(\sum_{t=1}^{n}\vec{x}_t\vec{x}_t^{T}+\vec{x}_{n+1}\vec{x}_{n+1}^{T}\right)^{-1}
+\nonumber\\
+  & = & \left(P_n^{-1}+\vec{x}_{n+1}\vec{x}_{n+1}^{T}\right)^{-1}
+\nonumber\\
+  & = & P_n-\frac{P_n\vec{x}_{n+1}\vec{x}_{n+1}^{T}P_n}{1+\vec{x}_{n+1}^{T}P_n\vec{x}_{n+1}}\,,
+\end{eqnarray}
+from the Woodbury matrix identity 
+\begin{eqnarray}
+    \left(A+UCV \right)^{-1} = A^{-1} - A^{-1}U \left(C^{-1}+VA^{-1}U \right)^{-1} VA^{-1}\,.
+\end{eqnarray}
+Consequently, observe that
+\begin{eqnarray}
+   \sum_{t=1}^{n+1} y_t\vec{x}_t & = & \sum_{t=1}^{n} y_t\vec{x}_t+y_{n+1}\vec{x}_{n+1}
+\nonumber\\
+& = & \sum_{t=1}^n\vec{x}_t\vec{x}_t^{T}\hat{\vec{a}}_n+y_{n+1}\vec{x}_{n+1}
+\nonumber\\
+& = & \sum_{t=1}^{n+1}\vec{x}_t\vec{x}_t^{T}\hat{\vec{a}}_n-\vec{x}_{n+1}\vec{x}_{n+1}^{T}\hat{\vec{a}}_n
+         +y_{n+1}\vec{x}_{n+1}
+\nonumber\\
+& = & P_{n+1}^{-1}\hat{\vec{a}}_n+\vec{x}_{n+1}(y_{n+1}-\hat{\vec{a}}_n\cdot\vec{x}_{n+1})
+\end{eqnarray}
+from equation~\eqref{eq:yx_xxa_n}, and hence the estimate $\hat{\vec{a}}_{n+1}$ is given recursively by
+\begin{eqnarray}
+   \hat{\vec{a}}_{n+1} = \hat{\vec{a}}_{n} + P_{n+1} \vec{x}_{n+1}(y_{n+1}-\hat{\vec{a}}_n\cdot\vec{x}_{n+1})
+\end{eqnarray}
+from equation~\eqref{eq:yx_xxa_np1}. Observe that this recursive estimate takes the form of a predictor--corrector
+update, since $\hat{\vec{a}}_n\cdot\vec{x}_{n+1}$ is the expected value of
+$y_{n+1}$ given $\hat{\vec{a}}_n$, from model~\eqref{eq:y_ax}.
+
+As a slight alternative to the above approach to re-estimation,
+ suppose now instead that we are using a sliding data window of fixed width $n$, e.g.\ for time series analysis.
+Then the $k$-th parameter estimate $\hat{\vec{a}}_{n}^{(k)}$ is given by
+\begin{eqnarray}
+   \hat{\vec{a}}_{n}^{(k)} = \left(\sum_{t=k}^{n+k-1}\vec{x}_t\vec{x}_t^{T}\right)^{-1}\sum_{t=k}^{n+k-1} y_t\vec{x}_t\,.
+\label{eq:yx_xxa_nk_alt}
+\end{eqnarray}
+Hence, observe that
+\begin{eqnarray}
+   P_{n}^{(k+1)} & = & \left(\sum_{t=k+1}^{n+k}\vec{x}_t\vec{x}_t^{T}\right)^{-1}
+\nonumber\\
+  & = & \left(\sum_{t=k}^{n+k-1}\vec{x}_t\vec{x}_t^{T}-\vec{x}_k\vec{x}_k^T+\vec{x}_{n+k}\vec{x}_{n+k}^{T}\right)^{-1}
+\nonumber\\
+  & = & \left({Q_n^{(k)}}^{-1}+\vec{x}_{n+k}\vec{x}_{n+k}^{T}\right)^{-1}
+\nonumber\\
+  & = & Q_n^{(k)}-\frac{Q_n^{(k)}\vec{x}_{n+k}\vec{x}_{n+k}^{T}Q_n^{(k)}}{1+\vec{x}_{n+k}^{T}Q_n^{(k)}\vec{x}_{n+k}}\,,
+\end{eqnarray}
+where
+\begin{eqnarray}
+   Q_{n}^{(k)} & = & \left(\sum_{t=k}^{n+k-1}\vec{x}_t\vec{x}_t^{T}-\vec{x}_k\vec{x}_k^T\right)^{-1}
+\nonumber\\
+  & = & \left({P_n^{(k)}}^{-1}-\vec{x}_{k}\vec{x}_{k}^{T}\right)^{-1}
+\nonumber\\
+  & = & P_n^{(k)}+\frac{P_n^{(k)}\vec{x}_{k}\vec{x}_{k}^{T}P_n^{(k)}}{1-\vec{x}_{k}^{T}P_n^{(k)}\vec{x}_{k}}\,.
+\end{eqnarray}
+Consequently, 
+\begin{eqnarray}
+   \sum_{t=k+1}^{n+k} y_t\vec{x}_t & = & \sum_{t=k}^{n+k-1} y_t\vec{x}_t-y_k\vec{x}_k+y_{n+k}\vec{x}_{n+k}
+\nonumber\\
+& = & \sum_{t=k}^{n+k-1}\vec{x}_t\vec{x}_t^{T}\hat{\vec{a}}_n^{(k)}-y_k\vec{x}_k+y_{n+k}\vec{x}_{n+k}
+\nonumber\\
+& = & \sum_{t=k+1}^{n+k}\vec{x}_t\vec{x}_t^{T}\hat{\vec{a}}_n^{(k)}
++\vec{x}_k\vec{x}_k^{T}\hat{\vec{a}}_n^{(k)}-\vec{x}_{n+k}\vec{x}_{n+k}^{T}\hat{\vec{a}}_n^{(k)}
+\nonumber\\
+&&        \hspace*{10mm}{}-y_k\vec{x}_k+y_{n+k}\vec{x}_{n+k}
+\nonumber\\
+& = & {P_{n}^{(k+1)}}^{-1}\hat{\vec{a}}_n^{(k)}
+-\vec{x}_{k}(y_{k}-\hat{\vec{a}}_n^{(k)}\cdot\vec{x}_{k})
+\nonumber\\
+&& \hspace*{10mm}{}+\vec{x}_{n+k}(y_{n+k}-\hat{\vec{a}}_n^{(k)}\cdot\vec{x}_{n+k})\,,
+\end{eqnarray}
+and hence
+\begin{eqnarray}
+   \hat{\vec{a}}_{n}^{(k+1)} & = & \hat{\vec{a}}_{n}^{(k)}
+-P_n^{(k+1)}\vec{x}_{k}(y_{k}-\hat{\vec{a}}_n^{(k)}\cdot\vec{x}_{k})
+\nonumber\\
+&&\hspace*{6mm}{}+P_n^{(k+1)}\vec{x}_{n+k}(y_{n+k}-\hat{\vec{a}}_n^{(k)}\cdot\vec{x}_{n+k})
+\,,
+\label{eq:yx_xxa_nkp1_alt}
+\end{eqnarray}
+from equation~\eqref{eq:yx_xxa_nk_alt}.
+
+\end{document}

@@ -1,0 +1,324 @@
+\documentclass[a4paper]{article}
+\usepackage[a4paper,margin=25mm]{geometry}
+\usepackage{graphicx,subcaption}
+\usepackage{amsmath,amsfonts}
+\usepackage{amssymb}
+\usepackage{accents}
+
+\newcommand{\rvec}[1]{\accentset{\leftarrow}{#1}}
+\renewcommand{\v}[1]{\mathbf{#1}}
+\renewcommand{\c}[1]{{\cal #1}}
+
+\title{Gaussian Restricted Boltzmann Classifier}
+\author{G.A. Jarrad}
+
+\begin{document}
+\maketitle
+\numberwithin{equation}{section}
+\numberwithin{figure}{section}
+\numberwithin{table}{section}
+\section{Definition}\label{sec:intro}
+Consider a restricted Boltzmann machine (RBM) with a real-valued input layer,
+a binary-valued hidden layer, and a binary-valued output layer, as shown in 
+Figure~\ref{fig:rbm}.
+A suitable energy function is given by
+\begin{eqnarray}
+    E(\v{x},\v{h},\v{y}; \Theta) & = & \frac{1}{2}\|\v{x}-\v{a}\|^2
+    - \v{b}^T\v{h} - \v{h}^T W\v{x} - \v{c}^T\v{y} - \v{h}^T U\v{y}\,,
+\label{eq:energy}
+\end{eqnarray}
+with input feature vector $\v{x}=(x_1,x_2,\ldots,x_F)\in\mathbb{X}\subseteq\mathbb{R}^F$, 
+hidden binary vector $\v{h}=(h_1,h_2,\ldots,h_H)\in\mathbb{H}=\{0,1\}^H$, and output 
+binary vector $\v{y}=(y_1,y_2,\ldots,y_C)\in\mathbb{Y}=\{0,1\}^C$.
+The model parameters are $\Theta=(\v{a}, \v{b}, \v{c}, W, U)$.
+The joint probability of $\v{x}$, $\v{y}$ and $\v{h}$ is then
+\begin{eqnarray}
+    p(\v{x},\v{h},\v{y}\;|\;\Theta) & = & \frac{e^{-E(\v{x},\v{h},\v{y}; \Theta)}}
+{\int_{\mathbb{X}}\sum_{\v{h}'\in\mathbb{H}}\sum_{\v{y}'\in\mathbb{Y}}
+e^{-E(\v{x}',\v{h}',\v{y}'; \Theta)}\,d|\v{x}'|
+}
+\,,
+\end{eqnarray}
+which is intractible to compute in general.
+
+In order to turn the RBM into a restricted Boltzmann classifier (RBC), let us now suppose that the binary vector $\v{y}$
+is really a one-in-$C$ vector of $C-1$ zeros and a single one, restricted to the set
+$\mathbb{Y}'=\{\v{y}\in\mathbb{Y}\;|\;\sum_{k=1}^{C}y_k=1\}$. Then there is a one-to-one correspondence between each
+vector $\v{y}\in\mathbb{Y}'$ and some scalar $y\in\{1,2,\ldots,C\}$, such that, for example,
+the term $U\v{y}$ selects the $y$-th column of $U$, denoted by $\v{u}_y$.
+Hence we obtain a final mapping to a multinomial output, suitable for a classifier.
+The joint probability then becomes
+\begin{eqnarray}
+     p(\v{x},\v{h},y\;|\;\Theta) &=&
+\frac{
+    e^{-\frac{1}{2}\|\v{x}-\v{a}\|^2+\v{b}^T\v{h}+\v{h}^T W\v{x}+c_y+\v{h}^T \v{u}_y}
+}
+{\int_{\mathbb{X}}\sum_{y'=1}^{C}\sum_{\v{h}'\in\mathbb{H}}
+   e^{-\frac{1}{2}\|\v{x}'-\v{a}\|^2+\v{b}^T\v{h}'+\v{h}'^T W\v{x}'+c_{y'}+\v{h}^T \v{u}_{y'}}
+   \,d|\v{x}'|
+}
+\nonumber\\&=&
+\frac{
+    e^{c_y-\frac{1}{2}\|\v{x}-\v{a}\|^2}
+\prod_{i=1}^{H}e^{h_i(b_i+ \v{w}_i^T\v{x}+u_{iy})}
+}
+{\int_{\mathbb{X}}\sum_{y'=1}^{C}
+   e^{c_{y'}-\frac{1}{2}\|\v{x}'-\v{a}\|^2}
+  \prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}+u_{iy}}\right]
+  \,d|\v{x}'|
+}
+\,,
+\end{eqnarray}
+where $\v{w}_i^T$ is the $i$-th row of $W$.
+The discriminative form of the RBC can then be specified as
+\begin{eqnarray}
+    p(y\;|\;\v{x},\Theta) & = & 
+\frac{\sum_{\v{h}'\in\mathbb{H}}p(\v{x},\v{h}',y\;|\;\Theta)}
+{\sum_{y'=1}^{C}\sum_{\v{h}'\in\mathbb{H}}p(\v{x},\v{h}',y'\;|\;\Theta)}
+\nonumber\\&=&
+\frac{
+    e^{c_y-\frac{1}{2}\|\v{x}-\v{a}\|^2}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}+u_{iy}}\right]
+}
+{\sum_{y'=1}^{C}
+   e^{c_{y'}-\frac{1}{2}\|\v{x}-\v{a}\|^2}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}+u_{iy'}}\right]
+}
+\nonumber\\&=&
+\frac{
+   e^{c_y}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}+u_{iy}}\right]
+}
+{
+\sum_{y'=1}^{C} 
+e^{c_{y'}}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}+u_{iy'}}\right]
+}
+\,,
+\label{eq:p_y_x}
+\end{eqnarray}
+which is a nonlinear form of logistic classifier.
+
+Now, the bipartite restriction depicted in Figure~\ref{fig:rbm} ensures that $\v{x}$ and $y$
+are conditionally independent given $\v{h}$.
+Observe, for instance, that
+\begin{eqnarray}
+   p(\v{x}\;|\;\v{h},y,\Theta) & = &
+\frac{ p(\v{x},\v{h},y\;|\;\Theta)}
+{ \int_{\mathbb{X}}p(\v{x}',\v{h},y\;|\;\Theta)\,d|\v{x}'|}
+\nonumber\\&=&
+\frac{
+    e^{-\frac{1}{2}\|\v{x}-\v{a}\|^2+\v{b}^T\v{h}+\v{h}^T W\v{x}+c_y+\v{h}^T \v{u}_y}
+}
+{
+\int_{\mathbb{X}}
+    e^{-\frac{1}{2}\|\v{x}'-\v{a}\|^2+\v{b}^T\v{h}+\v{h}^T W\v{x}'+c_y+\v{h}^T \v{u}_y}
+\,d|\v{x}'|
+}
+\nonumber\\&=&
+\frac{
+    e^{-\frac{1}{2}\|\v{x}-\v{a}\|^2+\v{h}^T W\v{x}}
+}
+{
+\int_{\mathbb{X}}
+    e^{-\frac{1}{2}\|\v{x}'-\v{a}\|^2+\v{h}^T W\v{x}'}
+\,d|\v{x}'|
+}
+\nonumber\\&=&
+\frac{
+    e^{-\frac{1}{2}\|\v{x}-\v{a}-W^T\v{h}\|^2+\v{h}^T W\v{a}+\frac{1}{2}\v{h}^T WW^T \v{h}}
+}
+{
+    \int_{\mathbb{X}}
+    e^{-\frac{1}{2}\|\v{x}-\v{a}-W^T\v{h}\|^2+\v{h}^T W\v{a}+\frac{1}{2}\v{h}^T WW^T \v{h}}
+    \,d|\v{x}'|
+}
+\nonumber\\&=&
+\frac{
+    e^{-\frac{1}{2}\|\v{x}-\v{a}-W^T\v{h}\|^2}
+}
+{
+    \int_{\mathbb{X}}e^{-\frac{1}{2}\|\v{x}-\v{a}-W^T\v{h}\|^2}\,d|\v{x}'|
+}
+\nonumber\\&=& N(\v{x}\;|\;\v{a}+W^T\v{h},I)\,.
+\end{eqnarray}
+Hence, $\v{x}$ is conditionally normally distributed with mean $\v{a}+W^T\v{h}$ and unit spherical 
+variance $I$ (the identity matrix).
+
+Similarly, observe that
+\begin{eqnarray}
+    p(y\;|\;\v{x},\v{h},\Theta) & = & 
+\frac{p(\v{x},\v{h},y\;|\;\Theta)}
+{\sum_{y'=1}^{C}p(\v{x},\v{h},y'\;|\;\Theta)}
+\nonumber\\&=&
+\frac{
+    e^{-\frac{1}{2}\|\v{x}-\v{a}\|^2+\v{b}^T\v{h}+\v{h}^T W\v{x}+c_y+\v{h}^T\v{u}_y}
+}
+{
+   \sum_{y'=1}^{C}
+    e^{-\frac{1}{2}\|\v{x}-\v{a}\|^2+\v{b}^T\v{h}+\v{h}^T W\v{x}+c_{y'}+\v{h}^T\v{u}_{y'}}
+}
+\nonumber\\&=&
+\frac{e^{c_y+\v{h}^T\v{u}_y}}
+  {\sum_{y'=1}^{C}e^{c_{y'}+\v{h}^T \v{u}_{y'}}}\,.
+\end{eqnarray}
+This result is just the {\em soft-max} function, or standard logistic classifier.
+
+Conversely, $\v{h}$ depends upon both $\v{x}$ and $\v{y}$ via
+\begin{eqnarray}
+    p(\v{h}\;|\;\v{x},y,\Theta) & = & 
+    \frac{p(\v{x},\v{h},y\;|\;\Theta)}
+{\sum_{\v{h}'\in\mathbb{H}}p(\v{x},\v{h}',y\;|\;\Theta)}
+\nonumber\\&=&
+\frac{
+    e^{c_y-\frac{1}{2}\|\v{x}-\v{a}\|^2}
+\prod_{i=1}^{H}e^{h_i(b_i+ \v{w}_i^T\v{x}+u_{iy})}
+}
+{
+   e^{c_{y}-\frac{1}{2}\|\v{x}-\v{a}\|^2}
+  \prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}+u_{iy}}\right]
+}
+\nonumber\\&=&
+\frac{
+\prod_{i=1}^{H}e^{h_i(b_i+ \v{w}_i^T\v{x}+u_{iy})}
+}
+{
+  \prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}+u_{iy}}\right]
+}
+\nonumber\\&=&
+  \prod_{i=1}^{H}p(h_i\;|\;\v{x},y,\Theta)
+\,,
+\end{eqnarray}
+where 
+\begin{eqnarray}
+  p(h_i=1\;|\;\v{x},y,\Theta) & = & 
+  \frac{e^{b_i+\v{w}_i^T\v{x}+u_{iy}}}{1+e^{b_i+\v{w}_i^T\v{x}+u_{iy}}}
+~=~\sigma(b_i+\v{w}_i^T\v{x}+u_{iy})
+  \,.
+\label{eq:ph1}
+\end{eqnarray}
+This is just the logistic sigmoid function.
+
+\section{Supervised Discriminative Optimisation}
+Consider the problem of estimating the RBC parameters $\Theta$ from a data-set of fully labelled feature vectors,
+$\c{X}=(\v{x}_1,\v{x}_2,\ldots,\v{x}_N)$, with corresponding labels $\c{Y}=(y_1,y_2,\ldots,y_N)$.
+Assuming that the data items are independent, the discriminative likelihood is given by
+\begin{eqnarray}
+  p(\c{Y}\;|\;\c{X},\Theta) & = & \prod_{d=1}^N p(y_d\;|\;\v{x}_d,\Theta)
+\,,
+\end{eqnarray}
+ and hence, from equation~\eqref{eq:p_y_x}, the average discriminative log-likelihood is given by
+\begin{eqnarray}
+  \c{L}_{\c{Y}|\c{X}}(\Theta) & = & \frac{1}{N}\ln p(\c{Y}\;|\;\c{X},\Theta)
+~=~ 
+\frac{1}{N}\sum_{d=1}^N \ln p(y_d\;|\;\v{x}_d,\Theta)
+\nonumber\\& = & 
+\frac{1}{N}\sum_{d=1}^N\left\{
+  \sum_{y'=1}^C \delta_{y',y_d}\ln\left(
+   e^{c_{y'}}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}_d+u_{iy'}}\right]\right)\right.
+\nonumber\\&&
+{}-\left.\ln\sum_{y'=1}^{C} 
+e^{c_{y'}}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}_d+u_{iy'}}\right]
+\right\}
+\nonumber\\& = & 
+\frac{1}{N}\sum_{d=1}^N\left\{
+  \sum_{y'=1}^C \delta_{y',y_d}\left(
+   c_{y'}+\sum_{i=1}^{H}\ln\left[1+e^{b_i+ \v{w}_i^T\v{x}_d+u_{iy'}}\right]\right)\right.
+\nonumber\\&&
+{}-\left.\ln\sum_{y'=1}^{C} 
+e^{c_{y'}}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}_d+u_{iy'}}\right]
+\right\}\,.
+\end{eqnarray}
+Hence, the gradient with respect to $c_y$ is
+\begin{eqnarray}
+\frac{\partial\c{L}_{\c{Y}|\c{X}}}{\partial c_y}
+& = & 
+\frac{1}{N}\sum_{d=1}^N\left\{
+\delta_{y,y_d}-
+\frac{e^{c_{y}}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}_d+u_{iy}}\right]}
+{\sum_{y'=1}^{C} 
+e^{c_{y'}}\prod_{i=1}^{H}\left[1+e^{b_i+ \v{w}_i^T\v{x}_d+u_{iy'}}\right]}
+\right\}
+\nonumber\\&=&
+\frac{1}{N}\sum_{d=1}^N\left\{
+\delta_{y,y_d}-p(y\:|\;\v{x}_d,\Theta)
+\right\}
+\nonumber\\&=&
+\frac{N_y}{N}-\frac{1}{N}\sum_{d=1}^N p(y\:|\;\v{x}_d,\Theta)
+\,,
+\end{eqnarray}
+where $N_y$ is the number of data labelled with class $y$.
+
+In order to develop the remaining derivatives, we first observe that
+\begin{eqnarray}
+\frac{\partial}{\partial\theta_i}\left(
+c_{y}+\sum_{i'=1}^{H}\ln\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y}}\right]
+\right)
+&=&
+\frac{\partial}{\partial\theta_i}\ln\left[1+e^{b_{i}+ \v{w}_{i}^T\v{x}_d+u_{iy}}\right]
+\nonumber\\&=&
+\frac{e^{b_{i}+ \v{w}_{i}^T\v{x}_d+u_{iy}}}
+{1+e^{b_{i}+ \v{w}_{i}^T\v{x}_d+u_{iy}}}
+\frac{\partial}{\partial\theta_i}(b_{i}+ \v{w}_{i}^T\v{x}_d+u_{iy})
+\nonumber\\&=&
+p(h_i=1\;|\;\v{x}_d,y,\Theta)
+\frac{\partial}{\partial\theta_i}(b_{i}+ \v{w}_{i}^T\v{x}_d+u_{iy})\,,
+\end{eqnarray}
+from equation~\eqref{eq:ph1},
+and then use the fact that 
+$\nabla f(\theta)=f(\theta)\nabla\ln f(\theta)$ to deduce that
+\begin{eqnarray}
+&\frac{\partial}{\partial\theta_i}e^{c_{y}}\prod_{i'=1}^{H}\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y}}\right]&
+\nonumber\\&=&\hspace*{-25mm}
+e^{c_{y}}\prod_{i'=1}^{H}\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y}}\right]
+\frac{\partial}{\partial\theta_i}\left(
+c_{y}+\sum_{i'=1}^{H}\ln\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y}}\right]
+\right)
+\nonumber\\&=&\hspace*{-25mm}
+e^{c_{y}}\prod_{i'=1}^{H}\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y}}\right]
+p(h_i=1\;|\;\v{x}_d,y,\Theta)
+\frac{\partial}{\partial\theta_i}(b_{i}+ \v{w}_{i}^T\v{x}_d+u_{iy})\,.
+\end{eqnarray}
+Hence, the gradient of the log-likelihood with respect to $u_{iy}$ is
+\begin{eqnarray}
+\frac{\partial\c{L}_{\c{Y}|\c{X}}}{\partial u_{iy}}
+& = & 
+\frac{1}{N}\sum_{d=1}^N\left\{\rule{0pt}{5mm}
+\delta_{y,y_d}\,p(h_i=1\;|\;\v{x}_d,y,\Theta)\right.
+\nonumber\\&&
+{}-\left.\frac{e^{c_{y}}\prod_{i'=1}^{H}\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y}}\right]}
+{\sum_{y'=1}^{C}e^{c_{y'}}\prod_{i'=1}^{H}\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y'}}\right]}
+p(h_i=1\;|\;\v{x}_d,y,\Theta)
+\right\}
+\nonumber\\&=&
+\frac{1}{N}\sum_{d=1}^N\left\{
+\delta_{y,y_d}-p(y\;|\;\v{x}_d,\Theta)\right\}\,p(h_i=1\;|\;\v{x}_d,y,\Theta)
+\,.
+\end{eqnarray}
+Similarly, the gradient of the log-likelihood with respect to $b_{i}$ is
+\begin{eqnarray}
+\frac{\partial\c{L}_{\c{Y}|\c{X}}}{\partial b_{i}}
+& = & 
+\frac{1}{N}\sum_{d=1}^N\left\{\sum_{y'=1}^{C}
+\delta_{y',y_d}\,p(h_i=1\;|\;\v{x}_d,y',\Theta)\right.
+\nonumber\\&&
+{}-\left.\frac{\sum_{y'=1}^{C}e^{c_{y'}}\prod_{i'=1}^{H}\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y'  }}\right]
+\,p(h_i=1\;|\;\v{x}_d,y',\Theta)}
+{\sum_{y'=1}^{C}e^{c_{y'}}\prod_{i'=1}^{H}\left[1+e^{b_{i'}+ \v{w}_{i'}^T\v{x}_d+u_{i'y'}}\right]}
+\right\}
+\nonumber\\&=&
+\frac{1}{N}\sum_{d=1}^N\sum_{y'=1}^{C}\left\{
+\delta_{y',y_d}-p(y'\;|\;\v{x}_d,\Theta)\right\}\,p(h_i=1\;|\;\v{x}_d,y',\Theta)
+\nonumber\\&=&
+\sum_{y=1}^{C}\frac{\partial\c{L}_{\c{Y}|\c{X}}}{\partial u_{iy}}
+\,,
+\end{eqnarray}
+and the gradient with respect to $\v{w}_i$ is
+\begin{eqnarray}
+\frac{\partial\c{L}_{\c{Y}|\c{X}}}{\partial \v{w}_{i}}
+& = & 
+\frac{1}{N}\sum_{d=1}^N\v{x}_d\sum_{y'=1}^{C}\left\{
+\delta_{y',y_d}-p(y'\;|\;\v{x}_d,\Theta)\right\}\,p(h_i=1\;|\;\v{x}_d,y',\Theta)
+\,.
+\end{eqnarray}
+Consequently, the discriminative log-likelihood $\c{L}_{\c{Y}|\c{X}}$ can be maximised using standard or accelerated
+gradient ascent. Note, however, that the parameter $\v{a}$ from equation~\eqref{eq:energy}
+does not appear in the RBC~\eqref{eq:p_y_x}, and therefore cannot be optimised discriminatively.
+
+\end{document}

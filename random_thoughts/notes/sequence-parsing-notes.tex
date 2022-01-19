@@ -1,0 +1,90 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx,subcaption}
+\usepackage{amsmath,amsfonts}
+\usepackage{qtree}
+\title{Notes on Sequence Parsing}
+\author{G.A. Jarrad}
+\begin{document}
+\maketitle
+\numberwithin{equation}{section}
+\numberwithin{figure}{section}
+\numberwithin{table}{section}
+\section{Introduction}\label{sec:intro}
+The purpose of {\em sequence parsing} is to provide a hierarchically structured interpretation
+of a sequence of tokens, 
+$\vec{\tau}=(\tau_1,\tau_2,...,\tau_n)$.
+Our primary example is the English sentence $\vec{\tau}=({\tt The},{\tt cat},{\tt sat},{\tt on},{\tt the},{\tt mat})$,
+the parse of which has a variety of representations, as shown by (but not restricted to) 
+Figures~\ref{fig:bracketing}--\ref{fig:parse-tree}. It is important to note, however, that some
+natural languages are not so strictly ordered, and so a general sequence parse need not necessarily follow the same
+ordering as the token sequence.
+\begin{figure}[h]
+\centering
+\{
+ \{{\tt The\, cat}\}\,
+ \{{\tt sat}\,
+  \{{\tt on}\,
+   \{{\tt the\, mat}\}
+  \}
+ \}
+\}
+\caption{The parse represented as a hierarchical partitioning of the tokens.}
+\label{fig:bracketing}
+\end{figure}
+\begin{figure}[h]
+\centering
+\(
+\underset{\rho_5}{\underline{
+   \underset{\rho_1}{\underline{\tt The\;\;cat}}\;\;
+   \underset{\rho_4}{\underline{{\tt sat}\;\;
+     \underset{\rho_3}{\underline{{\tt on}\;\;
+       \underset{\rho_2}{\underline{\tt the\;\;mat}}
+     }}
+  }}
+}}
+\)
+\caption{The parse represented as an ordered set of combination rules.}
+\label{fig:nesting}
+\end{figure}
+\begin{figure}[h]
+\centering
+\Tree [.S [.NP [.DET The ] [.N cat ] ] [.VP [.V sat ] [.PP [.P on ] [.NP [.DET the ] [.N mat ] ] ] ] ]
+\caption{The parse represented as a tree of nodes with  part-of-speech categories.}
+\label{fig:parse-tree}
+\end{figure}
+
+Sequence parsing typically comprises two distinct stages: (i) {\em token analysis}, discussed more fully in 
+Section~\ref{sec:token-analysis}; 
+and (ii) {\em structure analysis}, discussed in Section~\ref{sec:structure-analysis}.
+Briefly, the purpose of token analysis is to deduce, for each token $\tau_i$, the set $\Lambda(\tau_i)$ of {\em leaf nodes}
+that represent plausible interpretations of the token. For example, in natural language understanding the leaf nodes
+might include categories such as part-of-speech, as shown in Figure~\ref{fig:parse-tree}. 
+The purpose of structure analysis is then to deduce a set $\Pi(\vec{\tau})$ of
+rules that recursively combine sequences of nodes into higher-order {\em derived nodes}, 
+until a single derived node spans the entire token sequence $\vec{\tau}$, 
+again as shown in Figure~\ref{fig:parse-tree}.
+
+In summary, $\Pi(\vec{\tau})$ may be characterised as a parse tree graph with a 
+set ${\cal V}$ of nodes (both leaf and derived), and 
+a set ${\cal R}$ of rules linking these nodes.
+Each leaf node represents known information about the corresponding 
+token, including the position of that token in the token sequence.
+Likewise, each derived node represents a 
+sequence of leaf and/or derived nodes, which includes knowledge of the positions of all corresponding tokens.
+In general, therefore, every node $\nu\in{\cal V}$ {\em spans} a set of tokens. Specifically, we define
+the span $\sigma(\nu)$ of node $\nu$ to be the ordered set of
+indices of the underlying tokens. 
+Consequently, each rule $\rho\in{\cal R}$ then takes the form
+\begin{eqnarray}
+\nu_{i_1}\;\nu_{i_2}\;\cdots\;\nu_{i_m} & \stackrel{\rho}{\rightarrow} & \nu_*\,,
+\end{eqnarray}
+where the derived node $\nu_*=\delta(\rho)$ combines the {\em predecessor} nodes 
+$\vec{\pi}(\rho)=(\nu_{i_1},\ldots,\nu_{i_m})$
+with a resulting ordered span of
+\begin{eqnarray}
+\sigma(\delta(\rho))=\bigcup_{\nu\in\vec{\pi}(\rho)}\sigma(\nu)\,.
+\end{eqnarray}
+ For example, if $\sigma(\nu_1)=\{2,1\}$ and $\sigma(\nu_2)=\{3\}$, then the rule
+$\nu_1\;\nu_2\rightarrow\nu_3$ implies that $\sigma(\nu_3)=\{2,1,3\}$.
+
+\end{document}

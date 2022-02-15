@@ -4,9 +4,8 @@ Tests the various implementations of Restricted Boltzmann Machines.
 
 import numpy as np
 import bernoulli_lib as blib
-from bernoulli_rbm import BernoulliRBM, SequentialBernoulliRBM
 import vector_lib as vlib
-from scipy.special import expit as logistic
+from bernoulli_rbm import StandardBernoulliRBM, SequentialBernoulliRBM
 
 
 def plural_str(d):
@@ -18,7 +17,7 @@ def gen_params(F, H):
     vlib.orthogonalise_columns(W)
     a = -0.5 * np.sum(W, axis=1)
     b = -0.5 * np.sum(W, axis=0)
-    return a, b, W
+    return a, W, b
 
 
 if "__main__" == __name__:
@@ -26,36 +25,28 @@ if "__main__" == __name__:
     print("Experiment 1: compare standard versus sequential model")
     for num_bits in range(1, 4):
         print("Training with %d bit%s..." % (num_bits, plural_str(num_bits)))
-        X = vlib.binary_matrix(range(2 ** num_bits))
-        a, b, W = gen_params(num_bits, num_bits)
+        X = blib.binary_matrix(range(2 ** num_bits))
+        a, W, b = gen_params(num_bits, num_bits)
         print("Training standard RBM...")
-        std_model = BernoulliRBM(
-            params=(a.copy(), b.copy(), W.copy()),
-            n_iter=25,
+        std_model = StandardBernoulliRBM(
+            params=(a.copy(), W.copy(), b.copy()),
+            n_iter=100,
+            n_report=25,
             batch_size=1.0,
             L1_penalty=0.0,
             L2_penalty=0.0,
         )
-        print(std_model._report_card(X, 0))
-        for i in range(4):
-            std_model.fit(X)
-            print(std_model._report_card(X, (i + 1) * std_model.n_iter))
-        Q, P = blib.reconstruction_probs(*std_model._params, X)
-        print(P)
+        std_model.fit(X)
         print("Training sequential RBM...")
         seq_model = SequentialBernoulliRBM(
-            params=(a.copy(), b.copy(), W.copy()),
-            n_iter=25,
+            params=(a.copy(), W.copy(), b.copy()),
+            n_iter=100,
+            n_report=25,
             batch_size=1.0,
             L1_penalty=0.0,
             L2_penalty=0.0,
         )
-        print(seq_model._report_card(X, 0))
-        for i in range(4):
-            seq_model.fit(X)
-            print(seq_model._report_card(X, (i + 1) * seq_model.n_iter))
-        P = blib.sequential_reconstruction_probs(*seq_model._params, X)
-        print(P)
+        seq_model.fit(X)
     # Done
 
     # Test alternating sequence
@@ -63,28 +54,50 @@ if "__main__" == __name__:
     X = np.array([(1, 0, 1, 0), (0, 1, 0, 1)])
     for num_hidden in range(1, 5):
         print("Using %d output bit%s" % (num_hidden, plural_str(num_hidden)))
-        a, b, W = gen_params(X.shape[1], num_hidden)
+        a, W, b = gen_params(X.shape[1], num_hidden)
         print("Training standard model...")
-        std_model = BernoulliRBM(
-            params=(a.copy(), b.copy(), W.copy()),
+        std_model = StandardBernoulliRBM(
+            params=(a.copy(), W.copy(), b.copy()),
             n_iter=300,
             batch_size=1.0,
             L1_penalty=0.0,
             L2_penalty=0.0,
         )
         std_model.fit(X)
-        print(std_model._report_card(X))
-        Q, P = blib.reconstruction_probs(*std_model._params, X)
-        print(P)
+        print(std_model._report_card(**std_model.score(X)))
+        print(std_model.reconstruct(X))
         print("Training sequential model...")
         seq_model = SequentialBernoulliRBM(
-            params=(a.copy(), b.copy(), W.copy()),
+            params=(a.copy(), W.copy(), b.copy()),
             n_iter=300,
             batch_size=1.0,
             L1_penalty=0.0,
             L2_penalty=0.0,
         )
         seq_model.fit(X)
-        print(seq_model._report_card(X))
-        P = blib.sequential_reconstruction_probs(*seq_model._params, X)
-        print(P)
+        print(seq_model._report_card(**seq_model.score(X)))
+        print(seq_model.reconstruct(X))
+    # Done
+
+    # Test transfer learning
+    print("Experiment 3: transfer learning")
+    for num_bits in range(4, 5):
+        print("Training with %d bit%s..." % (num_bits, plural_str(num_bits)))
+        X = blib.binary_matrix(range(2 ** num_bits))
+        a, W, b = gen_params(num_bits, num_bits)
+        print("Training standard RBM...")
+        std_model = StandardBernoulliRBM(
+            params=(a.copy(), W.copy(), b.copy()),
+            n_iter=400,
+            n_report=100,
+            batch_size=1.0,
+            L1_penalty=0.0,
+            L2_penalty=0.0,
+        )
+        std_model.fit(X)
+        print(std_model.reconstruct(X))
+        print("Testing sequential RBM...")
+        seq_model = SequentialBernoulliRBM(params=std_model._params)
+        print(seq_model._report_card(**seq_model.score(X)))
+        print(seq_model.reconstruct(X))
+    # Done

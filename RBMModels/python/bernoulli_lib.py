@@ -1,470 +1,408 @@
 """
 This library provides a collection of methods for dealing with binary
-inputs and outputs for a Bernoulli Restricted Boltzmann Machine.
+inputs and outputs for Bernoulli Restricted Boltzmann Machines (RBMs)
+and Classifiers (RBCs).
 
-The basic RBM with input vector x and output vector y takes the form:
+The standard Bernoulli RBM (hereafter referred to as RBM-std) is a
+discrete exponential model with joint probability p(x,z) taking the form
 
-    p(x,y) = exp{-E(x,y)} / Z_XY
+                   exp{ a^T x + b^T z + x^T W z }
+    ------------------------------------------------
+    sum_x' sum_z' exp{ a^T x' + b^T z' + x'^T W z' }
 
-for energy function
+for input layer x in {0,1}^F and hidden layer z in {0,1}^H.
 
-    E(x,y) = -[ a^T x + b^T y + x^T W y ]
+Notionally, the undirected model x -- z corresponds to both directed models
+x -> z (forward-logistic) and x <- z (backward-logistic). In terms of neural
+networks, 'z' has a linear layer with logsitic sigmoid activations.
 
-and normalising partition function Z_XY.
+A detailed derivation of RBMs is given in the text document
+"notebooks/rbm_models.ipynb".
 
-For Bernoulli inputs and outputs, x and y become vectors of binary values.
-Note that the partition function remains intractable in general, but the
-conditional distributions become tractable. In particular:
 
-    P(x_i = 1 | y) = logistic( a_i + [W y]_i )
+The standard Bernoulli RBC (hereafter referred to as RBC-std) is a discrete
+RBM with joint probability p(x,y,z) taking the form
 
-and
+                            exp{ a^T x + b^T z + x^T W z + c^T y + z^T U y }
+    ----------------------------------------------------------------------------
+    sum_x' sum_y' sum_z' exp{ a^T x' + b^T z' + x'^T W z' + c^T y' + z'^T U y' }
 
-    P(y_j = 1 | x) = logistic( b_j + [x^T W]_j )
+with an additional output layer y in {0,1}^C restricted to one-hot vectors.
 
-The marginal distribution, which is also still intractable, is then
+The undirected model x -- z -- y now corresponds to the directed models
+x -> z -> (hidden-softmax), x -> z <- y (bi-logistic), and
+(backward-logistic) x <- z -> y (forward-softmax). In terms of neural
+networks, 'y' has a linear layer with soft-max activations.
 
-    p(x) = exp{-F(x)} / Z_X
+A detailed derivation of RBCs is given in the text document
+"notebooks/rbm_classifiers.ipynb", which also refers to the mechanics of the
+more general Boltzmann machine, which is derived in detail in the text document
+"notebooks/discrete_boltzmann.ipynb".
 
-with free energy
 
-    F(x) = -[ a^T x + sum_{j} log( 1 + exp{ b_j + [x^T W]_j } ) ]
+As a special case, the Bernoulli logistic RBC (referred to as RBC-logistic)
+is a Bernoulli RBC without the hidden layer. This has joint probability p(x,y)
+taking the form
+
+                   exp{ a^T x + c^T y + x^T U y }
+    ------------------------------------------------
+    sum_x' sum_y' exp{ a^T x' + c^T y' + x'^T U y' }
+
+The undirected model x -- y corresponds to the directed models
+x -> y (forward-softmax) and x <- y (backward-logistic).
+
+
+Nomenclature of constants:
+    - N: The number of cases in the training data-set.
+    - F: The number of features in the binary vector x.
+    - C: The number of classes in the one-hot vector y.
+    - H: The number of hidden units in the binary vector z.
+
+Nomenclature of parameters:
+    - a: The size-F vector of input biases.
+    - b: The size-H vector of hidden biases.
+    - W: The F x H matrix of input/hidden weights.
+    - c: The size-C vector of output biases.
+    - U: The H x C matrix of hidden/output weights.
+
+Nomenclature of variables:
+    - d: Indexes the N training data cases.
+    - i: Indexes the F input feature units.
+    - j: Indexes the C output classes.
+    - k: Indexes the H hidden units.
+    - X_bar: The conditional expectation E[x | z].
+    - Y_bar: The conditional expectation E[y | z].
+    - Y_tilde: The conditional expectation E[y | x] (RBC).
+    - Z_bar: The conditional expectation E[z | x] (RBM) or E[z | x, y] (RBC).
+
+Nomenclature of arrays:
+    - vectors denoted by lowercase, e.g. a or x or y.
+    - matrices denoted by upper case, e.g. W or X or Y.
+    - scalar and vector elements denoted either by upper case or lower case:
+        - _i indicates the i-th element of a vector, e.g. x_i.
+        - _ik indicates the i-th row and k-th column of a matrix,
+          e.g. W_ik or w_ik.
+        - _:j indicates the j-th column of a matrix, e.g. U_:j.
+        - _i: indicates the i-th row of a matrix, e.g. W_i:.
 """
 
 import numpy as np
-from scipy.special import expit as logistic
 import vector_lib as vlib
 
 
-def output_probs(b, W, X):
-    """
-    Computes the conditional probabilities [[q_ij]] that the j-th output unit
-    has value 1 (for j=1,2,...,H), given the i-th input vector (i=1,2,...,N).
-    The model predicts:
+# Allow for x to potentially be a Markov sequence
+_forward_logistic = vlib.logistic
 
-        q_ij = P(y_j = 1 | x_i) = logistic( b_j + sum_{k=1}^F x_ik W_kj )
+
+def forward_logistic(X, W, b):
+    """
+    For the RBM-std or partial RBC-std models
+
+        x -[weights W]- z (bias b)
+
+    this method computes
+
+        E[z_k | x_d] = p(z_k=1 | x_d) = logistic( x_d^T W_:k + b_k )
 
     Inputs:
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix [x_i] of input cases.
+        - X (array): An N x F matrix of input row vectors.
+        - W (array): The F x H matrix of input/hidden weights.
+        - b (array): The size-H vector of hidden biases.
     Returns:
-        - Q (array): The N x H matrix of output probabilities.
+        - Z_bar (array): The N x H matrix of logistic expectations.
     """
-    return logistic(np.matmul(X, W) + b)
+    return _forward_logistic(np.matmul(X, W) + b)
 
 
-def grad_output_probs(X, Q):
+def backward_logistic(Z, a, W):
     """
-    Computes the mean-data gradients, with respect to the model parameters, of
-    the Bernoulli output probabilities. The gradients take the form:
+    For the RBM-std or partial RBC-std models
 
-        mean(grad_theta(Q)) = [ 1/N sum_{i=1}^N d q_ij/d theta ]
+        x (bias a) -[weights W]- z
+
+    this method computes
+
+        E[x_i | z_d] = p(x_i=1 | z_d) = logistic( W_i: z_d + a_i )
 
     Inputs:
-        - X (array): The N x F matrix of input cases.
-        - Q (array): The N x H matrix of output probabilities.
+        - Z (array): An N x H matrix of 'hidden' row vectors.
+        - a (array): The size-F vector of input biases.
+        - W (array): The F x H matrix of input/hidden weights.
     Returns:
-        - grad_b (array): The size-H array of gradients with respect to 'b'.
-        - grad_W (array): The F x H matrix of gradients with respect to 'W'.
+        - X_bar (array): The N x F matrix of logistic expectations.
     """
-    # NB: d logistic(z)/d z = logistic(z) [1 - logistic(z)]
-    grad_z = Q * (1 - Q)
-    grad_b = np.mean(grad_z, axis=0)
-    grad_W = np.matmul(X.T, grad_z) / X.shape[0]
-    return grad_b, grad_W
+    return vlib.logistic(np.matmul(Z, W.T) + a)
 
 
-def input_probs(a, W, Y):
+# Allow for x to potentially be a Markov sequence
+def _bi_logistic(b_plus_XW, Y, U):
+    return vlib.logistic(b_plus_XW + vlib.one_hot_multiply(Y, U.T))
+
+
+def bi_logistic(X, Y, W, b, U):
     """
-    Computes the conditional probabilities [[p_ij]] that the j-th input unit
-    has value 1 (for j=1,2,...,F), given the i-th output vector (i=1,2,...,N).
-    The model predicts:
+    For the RBC-std model
 
-        p_ij = P(x_j = 1 | y_i) = logistic( a_j + sum_{k=1}^H y_ik W_jk )
+        x -[weights W] - z (bias b) -[weights U]- y
+
+    this method computes
+
+        p(z_k = 1 | x_d, y_d) = logistic( x_d W_:k + U_k: y_d + b_k )
 
     Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - W (array): The F x H matrix of interaction weights.
-        - Y (array): The N x H matrix of output cases.
+        - X (array): The N x F matrix of input row vectors.
+        - Y (array): Either an N x C matrix of output vectors, or a
+            size-N vector of output indices.
+        - W (array): The F x H matrix of input/hidden weights.
+        - b (array): The size-H vector of hidden biases.
+        - U (array): The H x C matrix of hidden/output weights.
     Returns:
-        - P (array): The N x F matrix of input probabilities.
+        - Z_bar (array): The N x H matrix of hidden expectations.
     """
-    return logistic(np.matmul(Y, W.T) + a)
+    return _bi_logistic(np.matmul(X, W) + b, Y, U)
 
 
-def grad_input_probs(Y, P):
+# Allow for x to potentially be a Markov sequence
+_forward_softmax = vlib.row_softmax
+
+
+def forward_softmax(Z, U, c):
     """
-    Computes the mean-data gradients, with respect to the model parameters, of
-    the Bernoulli input probabilities. The gradients take the form:
+    For the partial RBC-std model
 
-        mean(grad_theta(P)) = [ 1/N sum_{i=1}^N d p_ij/d theta ]
+        z -[weights U]- y (bias c)
+
+    this method computes
+
+        p(y_j = 1 | z_d) = softmax( z_d U_:j + c_j )
 
     Inputs:
-        - Y (array): The N x H matrix of output cases.
-        - P (array): The N x F matrix of input probabilities.
+        - Z (array): An N x H matrix of 'hidden' row vectors.
+        - U (array): The H x C matrix of hidden/output weights.
+        - c (array): The size-C vector of output biases.
     Returns:
-        - grad_a (array): The size-F array of gradients with respect to 'a'.
-        - grad_W (array): The F x H matrix of gradients with respect to 'W'.
+        - Y_bar (array): The N x C matrix of output probabilities, with unit
+            row sums.
     """
-    grad_z = P * (1 - P)
-    grad_a = np.mean(grad_z, axis=0)
-    grad_W = np.matmul(grad_z.T, Y) / Y.shape[0]
-    return grad_a, grad_W
+    return _forward_softmax(np.matmul(Z, U) + c)
 
 
-def free_energies(a, b, W, X):
+# Allow for x to potentially be a Markov sequence
+def _hidden_softmax(b_plus_XW, U, c):
+    N = b_plus_XW.shape[0]
+    C = U.shape[1]
+    ln_P = np.zeros((N, C))
+    exp_bXW = np.exp(b_plus_XW)  # N x H
+    exp_U = np.exp(U)  # H x C
+    for j in range(C):
+        ln_P[:, j] = np.sum(np.log(exp_bXW * exp_U[:, j] + 1), axis=1) + c[j]
+    return vlib.row_softmax(ln_P)
+
+
+def hidden_softmax(X, W, b, U, c):
     """
-    Computes the free energies of the given input vectors.
+    For the RBC-std model
+
+        x -[weights W]- z (bias b) -[weights U]- y (bias c)
+
+    this method computes
+
+        E[y_j|x_d] = p(y_j=1|x_d) = softmax(...x_d...summed over z...)
+
+    where 'z' is a binary vector.
 
     Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
+        - X (array): An N x F matrix of input cases.
+        - W (array): The F x H matrix of input/hidden weights.
+        - b (array): The size-H vector of hidden biases.
+        - U (array): The H x C matrix of hidden/output weights.
+        - c (array): The size-C vector of output biases.
     Returns:
-        - F (array): The size-N free energies.
+        - Y_tilde (array): The N x C matrix of output probabilities, with unit
+            row sums.
     """
-    term1 = np.matmul(X, a)
-    exponent = np.matmul(X, W) + b
-    term2 = np.sum(np.log(1 + np.exp(exponent)), axis=1)
-    return -(term1 + term2)
+    return _hidden_softmax(np.matmul(X, W) + b, U, c)
 
 
-def mean_free_energy(a, b, W, X):
+# Allow for x to potentially be a Markov sequence
+def _hidden_logistic(b_plus_XW, U, c):
+    N = b_plus_XW.shape[0]
+    C = U.shape[1]
+    ln_P = np.zeros((N, C))
+    exp_bXW = np.exp(b_plus_XW)  # N x H
+    exp_U = np.exp(U)  # H x C
+    for j in range(C):
+        ln_P[:, j] = np.sum(np.log(exp_bXW * exp_U[:, j] + 1), axis=1) + c[j]
+    return vlib.logistic(ln_P)
+
+
+def hidden_logistic(X, W, b, U, c):
     """
-    Computes the mean free energy of the given input vectors.
+    For the 3-layer RBM model
+
+        x -[weights W]- z (bias b) -[weights U]- y (bias c)
+
+    with binary output 'y', this method computes
+
+        E[y_j|x_d] = p(y_j=1|x_d) = logistic(...x_d...summed over z...)
+
+    where 'z' is a binary vector.
 
     Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
+        - X (array): An N x F matrix of input cases.
+        - W (array): The F x H matrix of input/hidden weights.
+        - b (array): The size-H vector of hidden biases.
+        - U (array): The H x C matrix of hidden/output weights.
+        - c (array): The size-C vector of output biases.
     Returns:
-        - F (float): The mean free energy.
+        - Y_tilde (array): The N x C matrix of output probabilities.
     """
-    return np.mean(free_energies(a, b, W, X))
+    return _hidden_logistic(np.matmul(X, W) + b, U, c)
 
 
-def grad_gibbs_sampling(a, b, W, X):
+def binary_sample(probs):
     """
-    Computes the Gibbs sampling approximations of the gradients, with respect
-    to the model parameters, of the mean logarithm of the joint probability
-    of the input data.
+    Stochastically assigns 1 (else 0) for each element, with the given element's
+    Bernoulli probability.
+
+    Input:
+        - probs (array): An arbitrarily-sized tensor of independent probabilities.
+    Returns:
+        - res (array): The resulting binary tensor.
+    """
+    return np.asarray(np.floor(probs + np.random.rand(*probs.shape)), dtype=int)
+
+
+def binary_decision(probs):
+    """
+    Deterministically assigns 1 (else 0) to each element, if the element's
+    Bernoulli probability exceeds 0.5.
+
+    Input:
+        - probs (array): An arbitrarily-sized tensor of independent probabilities.
+    Returns:
+        - res (array): The resulting binary tensor.
+    """
+    return np.asarray(probs > 0.5, dtype=int)
+
+
+def binary_vector(value, N=None):
+    """
+    Converts the decimal value into a size-N vector of bits, using zero-padding
+    or truncation (both on the left) as necessary.
 
     Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
+        - value (int): The decimal value.
+        - N (int, optional): The size of the binary vector.
     Returns:
-        - grad_a (array): The size-F array of gradients with respect to 'a'.
-        - grad_b (array): The size-H array of gradients with respect to 'b'.
-        - grad_W (array): The F x H matrix of gradients with respect to 'W'.
+        - vec (array): The size-N binary vector.
     """
-    N = X.shape[0]
-    Q = output_probs(b, W, X)  # E_{y|x}[ y ]
-    Y = bernoulli_sample(Q)
-    P = input_probs(a, W, Y)  # E_{x'|y}[ x' ]
-    Xd = bernoulli_sample(P)
-    Qd = output_probs(b, W, Xd)  # E_{y'|x'}[ y' ]
-    grad_a = np.mean(X, axis=0) - np.mean(Xd, axis=0)
-    grad_b = np.mean(Y, axis=0) - np.mean(Qd, axis=0)
-    grad_W = (np.matmul(X.T, Y) - np.matmul(Xd.T, Qd)) / N
-    return grad_a, grad_b, grad_W
+    b = bin(value)[2:]
+    if N is not None:
+        b = b[-N:]
+        if len(b) < N:
+            b = "0" * (N - len(b)) + b
+    return np.asarray(list(int(bit) for bit in b), dtype=int)
 
 
-def grad_hinton_gibbs(a, b, W, X):
+def binary_matrix(values, N=None):
     """
-    Computes the Hinton modification of the Gibbs sampling approximations of
-    the gradients, with respect to the model parameters, of the mean logarithm
-    of the joint probability of the input data.
+    Converts the decimal values into an M x N matrix of bits, using zero-padding
+    or truncation (both on the left) as necessary.
 
     Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
+        - values (iterable of int): The size-M collection of decimal values.
+        - N (int, optional): The size of each binary row vector.
     Returns:
-        - grad_a (array): The size-F array of gradients with respect to 'a'.
-        - grad_b (array): The size-H array of gradients with respect to 'b'.
-        - grad_W (array): The F x H matrix of gradients with respect to 'W'.
+        - mat (array): The M x N binary vector.
     """
-    N = X.shape[0]
-    Q = output_probs(b, W, X)  # E_{y|x}[ y ]
-    Y = bernoulli_sample(Q)
-    P = input_probs(a, W, Y)  # E_{x'|y}[ x' ]
-    Qd = output_probs(b, W, P)  # E_{x'|y}[ E_{y'|x'}[ y' ] ]
-    grad_a = np.mean(X, axis=0) - np.mean(P, axis=0)
-    grad_b = np.mean(Y, axis=0) - np.mean(Qd, axis=0)
-    grad_W = (np.matmul(X.T, Y) - np.matmul(P.T, Qd)) / N
-    return grad_a, grad_b, grad_W
+    if N is None:
+        N = len(bin(max(values))) - 2
+    return np.asarray([binary_vector(v, N) for v in values])
 
 
-def grad_mean_field(a, b, W, X):
+def binary_scores(X, P):
     """
-    Computes the mean field approximations of the gradients, with respect to
-    the model parameters, of the mean logarithm of the joint probability of
-    the input data.
+    Computes the log-likelihoods of the binary row vectors, X = [x_i],
+    given the probabilities, P = [p_i], of each bit being independently
+    set to 1.
+
+    The scores are given by:
+
+        log p(x_i) = log prod_j [ p_ij^x_ij * (1 - p_ij)^(1-x_ij) ]
+
+    Note that if X is None (i.e. every x_i is unknown), then
+
+        E[log p(x_i)] = sum_{x} p(x) log p(x)
+
+    is computed instead.
 
     Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
+        - X (array): The N x M matrix of binary input vectors.
+        - P (array): The N x M matrix of bit probabilities.
     Returns:
-        - grad_a (array): The size-F array of gradients with respect to 'a'.
-        - grad_b (array): The size-H array of gradients with respect to 'b'.
-        - grad_W (array): The F x H matrix of gradients with respect to 'W'.
+        - scores (array): The size-N vector of log-likelihoods.
     """
-    N = X.shape[0]
-    Q = output_probs(b, W, X)  # E_{y|x}[ y ]
-    P = input_probs(a, W, Q)  # E_{y|x}[ E_{x'|y}[ x' ] ]
-    Qd = output_probs(b, W, P)  # E_{y|x}[ E_{x'|y}[ E_{y'|x'}[ y' ] ] ]
-    grad_a = np.mean(X, axis=0) - np.mean(P, axis=0)
-    grad_b = np.mean(Q, axis=0) - np.mean(Qd, axis=0)
-    grad_W = (np.matmul(X.T, Q) - np.matmul(P.T, Qd)) / N
-    return grad_a, grad_b, grad_W
-
-
-def reconstruction_probs(a, b, W, X):
-    """
-    Computes the mean field approximate probabilities [[p_ij]] that the j-th
-    input unit has value 1 (for j=1,2,...,H), given the i-th input vector
-    (for i=1,2,...,N).
-    The model predicts:
-
-        q_ik = P(y_k = 1 | x_i) = logistic( b_k + sum_{j=1}^F x_ij W_jk )
-        p_ij = P(x_j = 1 | q_i) = logistic( a_j + sum_{k=1}^H q_ik W_jk )
-
-    In other words, the usual step of sampling a Bernoulli vector from the
-    output probabilities is skipped. The output probabilities themselves are
-    'plugged' into the function to compute approximate input probabilities.
-
-    Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
-    Returns:
-        - Q (array): The N x H matrix of output probabilities.
-        - P (array): The N x F matrix of reconstructed input probabilities.
-    """
-    Q = output_probs(b, W, X)
-    P = input_probs(a, W, Q)
-    return Q, P
-
-
-def reconstruction_scores(X, P):
-    """
-    Computes the logarithm of the approximate probabilities of the
-    input data. The scores are given by:
-
-        log prod_{j=1}^F [ p_ij^x_ij * (1 - p_ij)^(1-x_ij) ]
-
-    Inputs:
-        - X (array): The N x F matrix of input cases.
-        - P (array): The N x F matrix of reconstructed input probabilities.
-    Returns:
-        - scores (array): The log approximate probabilities.
-    """
+    if X is None:
+        X = P  # force expected values
     S = X * np.log(P + 1e-30) + (1 - X) * np.log(1 - P + 1e-30)
     return np.sum(S, axis=1)
 
 
-def mean_reconstruction_score(X, P):
+def binary_errors(X, P):
     """
-    Computes the mean logarithm of the joint approximate probability of the
-    input data. The score is given by:
+    Computes the number of bit-wise errors made by deterministically
+    reconstructing the binary row vectors, X = [x_i], from the given
+    probabilities, P = [p_i], of each bit being independently
+    set to 1.
 
-        1/N sum_{i=1}^N log prod_{j=1}^F [ p_ij^x_ij * (1 - p_ij)^(1-x_ij) ]
+    The scores are given by:
+
+        e(x_i) = sum_j abs( x_ij - decide(p_ij) )
 
     Inputs:
-        - X (array): The N x F matrix of input cases.
-        - P (array): The N x F matrix of reconstructed input probabilities.
+        - X (array): The N x M matrix of binary input vectors.
+        - P (array): The N x M matrix of bit probabilities.
     Returns:
-        - score (float): The mean log approximate probability.
+        - scores (array): The size-N vector of bit errors.
     """
-    return np.mean(reconstruction_scores(X, P))
+    return np.sum(np.abs(X - binary_decision(P)), axis=1)
 
 
-def grad_reconstruction_score(W, X, Q, P):
+def one_hot_scores(X, P):
     """
-    Computes the gradients, with respect to the model parameters, of the
-    mean logarithm of the joint approximate probability of the
-    input data.
+    Computes the log-likelihoods of the observed cases, X=[x_i], given the
+    (dependent) probabilities, P = [[p_ij]], that x_i belongs to class j, i.e.
+    the corresponding one-hot vector has a 1 at the j-th bit (with all other
+    bits being 0).
+
+    If X is a matrix of one-hot row vectors, then the scores are given by:
+
+        log p(x_i) = sum_{j} x_ij log p_ij
+
+    Otherwise, if X is a vector of class indices, then the scores are given by:
+
+        log p(x_i) = log p_{i, x_i}
+
+    Note that if X is None (i.e. every x_i is unknown), then the expected value
+
+        E[log p(x_i)] = sum_{x} p(x) log p(x)
+
+    is computed instead.
 
     Inputs:
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
-        - Q (array): The N x H matrix of output probabilities.
-        - P (array): The N x F matrix of reconstructed input probabilities.
+        - X (array): Either an N-sized vector of indices, or an N x M matrix
+            of one-hot row vectors.
+        - P (array): The N x M matrix of class probabilities.
     Returns:
-        - grad_a (array): The size-F array of gradients with respect to 'a'.
-        - grad_b (array): The size-H array of gradients with respect to 'b'.
-        - grad_W (array): The F x H matrix of gradients with respect to 'W'.
+        - scores (array): The N-sized vector of log-likelihoods.
     """
-    # P = logistic(z), z = a + W Q
-    # Note: dP/dz = P * (1 - P)
-    # S = X * log(P) + (1 - X) * log(1 - P)
-    # => dS/dP = X / P - (1 - X) / (1 - P)
-    # => dS/dz = dS/dP dP/dz = X - P
-    dS_dz = X - P  # N x F
-    # dS/da = dS/dz dz/da, but dz/da = 1
-    grad_a = np.mean(dS_dz, axis=0)
-    # Q = logistic(t), t = b + X W
-    dQ_dt = Q * (1 - Q)  # N x H
-    # dS/db = dS/dz dz/db; dz/db = W dQ/db; dQ/db = dQ/dt dt/db but dt/db = 1
-    grad_b = np.mean(dQ_dt * np.matmul(dS_dz, W), axis=0)
-    # dS/dW = dS/dz {Q + W dQ/dW}; dQ/dW = dQ/dt dt/dW = dQ/dt X
-    term1 = np.matmul(dS_dz.T, Q)
-    term2 = W * np.matmul((dS_dz * X).T, dQ_dt)
-    grad_W = (term1 + term2) / X.shape[0]
-    return grad_a, grad_b, grad_W
-
-
-def mean_reconstruction_error(X, P):
-    """
-    Computes the mean square error of reconstructing the inputs using
-    approximate probabilities. The MSE is given by:
-
-        1/N sum_{i=1}^N sum_{j=1}^F ( x_ij - p_ij )^2
-
-    Inputs:
-        - X (array): The N x F matrix of input cases.
-        - P (array): The N x F matrix of reconstructed input probabilities.
-    Returns:
-        - mse (float): The mean square error.
-    """
-    return np.mean(np.sum((X - P) ** 2, axis=1))
-
-
-def grad_reconstruction_error(W, X, Q, P):
-    """
-    Computes the gradients, with respect to the model parameters, of the
-    mean square error of reconstructing the input data.
-
-    Inputs:
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
-        - Q (array): The N x H matrix of output probabilities.
-        - P (array): The N x F matrix of reconstructed input probabilities.
-    Returns:
-        - grad_a (array): The size-F array of gradients with respect to 'a'.
-        - grad_b (array): The size-H array of gradients with respect to 'b'.
-        - grad_W (array): The F x H matrix of gradients with respect to 'W'.
-    """
-    # P = logistic(z) => dP/dz = P * (1 - P)
-    # S = (X - P)^2 => dS/dz = dS/dP dP/dz = -2 (X - P) * P * (1 - P)
-    dS_dz = -2 * (X - P) * P * (1 - P)
-    # z = a + W Q => dS/da = dS/dz dz/da = dS/dz
-    grad_a = np.mean(dS_dz, axis=0)
-    # Q = logistic(t) => dQ/dt = Q * (1 - Q)
-    dQ_dt = Q * (1 - Q)  # N x H
-    # t = b + X W = > dQ/db = dQ/dt dt/db = dQ/dt
-    # => dS/db = dS/dz dz/db = dS/dz W dQ/db
-    grad_b = np.mean(dQ_dt * np.matmul(dS_dz, W), axis=0)
-    # dz/dW = Q + W dQ/dW, dQ/dW = dQ/dt dt/dW = dQ/dt X
-    # => dS/dW = dS/dz {Q + W dQ/dt X}
-    term1 = np.matmul(dS_dz.T, Q)
-    term2 = W * np.matmul((dS_dz * X).T, dQ_dt)
-    grad_W = (term1 + term2) / X.shape[0]
-    return grad_a, grad_b, grad_W
-
-
-def sequential_reconstruction_probs(a, b, W, X):
-    """
-    Computes the NADE mean-field probabilities [[p_ij]] that the j-th input
-    unit has value 1 (for j=1,2,...,F), for the i-th input vector (i=1,2,...,N).
-    The model predicts:
-
-        q_ijk = P(y_k = 1 | x_i) = logistic( b_k + sum_{m=1}^{j-1} x_im W_mk )
-        p_ij = P(x_ij = 1 | x_i) = logistic( a_j + sum_{k=1}^{H} W_jk q_ijk )
-
-    Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
-    Returns:
-        - P (array): The N x F array of probabilities.
-    """
-    N, F = X.shape
-    H = len(b)
-    P = np.zeros((N, F))
-    Z = np.tile(b, (N, 1))  # N x H array of partial sums
-    for j in range(F):
-        Q = logistic(Z)
-        P[:, j] = logistic(np.matmul(Q, W[j, :]) + a[j])
-        Z += np.outer(X[:, j], W[j, :])
-    return P
-
-
-def grad_sequential_reconstruction_probs(a, b, W, X):
-    """
-    Computes the exact gradients of the mean log of the NADE mean-field
-    probabilities.
-
-    Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
-    Returns:
-        - grad_a (array): The size-F vector gradient for 'a'.
-        - grad_b (array): The size-H vector gradient for 'b'.
-        - grad_W (array): The F x H matrix gradient for 'W'.
-    """
-    N, F = X.shape
-    H = len(b)
-    grad_a = np.zeros(F)
-    grad_W = np.zeros((F, H))
-    sum_B = np.zeros((N, H))  # N x H array of partial sums
-    Z = np.matmul(X, W) + b  # N x H array of partial sums
-    for j in range(F - 1, -1, -1):
-        x_j = X[:, j]
-        w_j = W[j, :]
-        Z -= np.outer(x_j, w_j)
-        Y_bar = logistic(Z)  # p(y=1 | x_1,x_2,...,x_{j-1})
-        x_bar_j = logistic(np.matmul(Y_bar, w_j) + a[j])  # p(x_j = 1 | y)
-        d_j = x_j - x_bar_j
-        grad_a[j] = np.mean(d_j)
-        grad_W[j, :] = (np.matmul(d_j, Y_bar) + np.matmul(x_j, sum_B)) / N
-        B = vlib.multiply_columns(Y_bar * (1 - Y_bar) * w_j, d_j)
-        sum_B += B
-    grad_b = np.mean(B, axis=0)
-    return grad_a, grad_b, grad_W
-
-
-def approx_grad_sequential_reconstruction_probs(a, b, W, X):
-    """
-    Computes approximate gradients of the mean log of the NADE mean-field
-    probabilities, by extending the the mean field approximation gradients
-    of the standard RBM model.
-
-    Inputs:
-        - a (array): The F-sized vector of visible weights.
-        - b (array): The H-sized vector of hidden weights.
-        - W (array): The F x H matrix of interaction weights.
-        - X (array): The N x F matrix of input cases.
-    Returns:
-        - grad_a (array): The size-F vector gradient for 'a'.
-        - grad_b (array): The size-H vector gradient for 'b'.
-        - grad_W (array): The F x H matrix gradient for 'W'.
-    """
-    N, F = X.shape
-    H = len(b)
-    grad_a = np.zeros(F)
-    grad_b = np.zeros(H)
-    grad_W = np.zeros((F, H))
-    Z = np.tile(b, (N, 1))  # N x H array of partial sums
-    for j in range(F):
-        Q = logistic(Z)
-        P_j = logistic(np.matmul(Q, W[j, :]) + a[j])
-        grad_a[j] = np.mean(X[:, j]) - np.mean(P_j)
-        Z_hat = Z + np.outer(P_j, W[j, :])
-        Q_hat = logistic(Z_hat)
-        grad_b += np.mean(Q, axis=0) - np.mean(Q_hat, axis=0)
-        grad_W[j, :] = (np.matmul(X[:, j], Q) - np.matmul(P_j, Q_hat)) / N
-        Z += np.outer(X[:, j], W[j, :])
-    return grad_a, grad_b, grad_W
+    log_P = np.log(P + 1e-30)
+    if X is None:
+        X = P  # force expected values
+    if vlib.is_matrix(X):
+        # matrix
+        return np.sum(X * log_P, axis=1)
+    else:
+        # assume vector
+        return log_P[range(len(X)), X]

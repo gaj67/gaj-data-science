@@ -46,21 +46,29 @@ def orthogonalise_columns(X):
         sq_norms[i] = 1 if sq_len < 1e-16 else 1 / sq_len
 
 
-def multiply_columns(A, v):
+def multiply_columns(A, v, inplace=True):
     """
-    Performs in-place, element-wise multiplication of the matrix columns by the
+    Performs element-wise multiplication of the matrix columns by the
     given vector.
 
     Inputs:
         - A (array): An N x M matrix.
         - v (array): A size-N vector.
+        - inplace (bool, default=True): Indicates whether (True) or not
+            (False) to directly modify the input matrix.
     Returns:
-        - A (array): The N x M modified matrix.
+        - B (array): The N x M (possibly modified) matrix.
     """
     M = A.shape[1]
-    for j in range(M):
-        A[:, j] *= v
-    return A
+    if inplace:
+        for j in range(M):
+            A[:, j] *= v
+        return A
+    else:
+        B = np.zeros(A.shape)
+        for j in range(M):
+            B[:, j] = A[:, j] * v
+        return B
 
 
 def vector_softmax(v):

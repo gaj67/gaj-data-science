@@ -131,7 +131,8 @@ class RBM:
                 batch_end = min(batch_start + batch_size, n_samples)
                 X_batch = X[batch_start:batch_end, :]
                 y_batch = _get_y_batch(batch_start, batch_end)
-                self._update_parameters(X_batch, y_batch)
+                batch_prop = (batch_end - batch_start) / n_samples
+                self._update_parameters(X_batch, y_batch, batch_prop)
                 batch_start += batch_size
             if self.n_report > 0 and i % self.n_report == 0:
                 print(self._report_card(iter=i, **self.score(X, Y)))
@@ -269,14 +270,26 @@ class RBM:
     @abstractmethod
     def get_parameters(self):
         """
-        Obtains the model parameters.
+        Obtains the model parameters. Note that this will return the actual
+        internal parameter references.
 
         Returns:
             - params: A tuple of the model parameters.
         """
         raise NotImplementedError
 
-    def _update_parameters(self, X, Y=None):
+    def copy_parameters(self):
+        """
+        Obtains a shallow copy of the model parameters.
+        Note that this will NOT return the actual
+        internal parameter references.
+
+        Returns:
+            - params: A tuple of the model parameters.
+        """
+        return tuple(p.copy() for p in self.get_parameters())
+
+    def _update_parameters(self, X, Y=None, batch_prop=1.0):
         """
         Updates the model parameters given the input data.
 
@@ -285,6 +298,8 @@ class RBM:
             - Y (array, optional): A vector of output labels (RBC), or a matrix
                 of row-wise output cases (RBM), if supervised learning is
                 permitted.
+            - batch_prop (float, optional): The proportion of batch samples
+                out of the total number of training samples.
         """
         # Compute new direction as a function of the gradient
         grads = self._compute_score_gradients(X, Y)
@@ -311,7 +326,7 @@ class RBM:
                     m = np.min(grad[ind] / penalty[ind])
                     grad -= self.L2_penalty * m * penalty
         # Step in the direction of the gradient
-        rho = self.step_size
+        rho = self.step_size * batch_prop
         for param, grad in zip(self.get_parameters(), grads):
             if grad is not None:
                 param += rho * grad

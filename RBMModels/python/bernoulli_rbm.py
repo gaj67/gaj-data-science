@@ -1,5 +1,5 @@
 """
-Implementations of Restricted Boltzmann Machines with Bernoulli outputs.
+Implementations of Restricted Boltzmann Machines with Bernoulli layers.
 """
 
 import numpy as np
@@ -158,26 +158,37 @@ class SequentialBernoulliRBM(BernoulliRBM2):
 
         E(x,y) = -( a^T x + x^T W y + b^T y ).
 
-    However, a Markov sequence is imposed upon the elements of the input
+    However, a Markov sequence is now imposed upon the elements of the input
     vector 'x', such that
 
       p(x_1,x_2,...,x_F) = p(x_1) p(x_2|x_1) ... p(x_F|x_1,x_2,...,x_{F-1}).
+
+    Note that this implementation uses the mean field approximation to
+    estimation and parameter gradient computation.
     """
 
     def reconstruct(self, X):
         a, W, b = self.get_parameters()
+        Fmax = len(a)
         N, F = X.shape
-        X_bar = np.zeros((N, F))
+        X_bar = np.zeros((N, Fmax))
         b_plus_XW = np.tile(b, (N, 1))  # N x H array of partial sums
         _fwd = (
             blib._forward_softmax if self.is_RBC()
             else blib._forward_logistic
         )
         _bwd = blib.backward_logistic
+        # Use known sub-sequences
         for i in range(F):
             Y_bar = _fwd(b_plus_XW)
             X_bar[:, i : i + 1] = _bwd(Y_bar, a[i : i + 1], W[i : i + 1, :])
             b_plus_XW += np.outer(X[:, i], W[i, :])
+        # Use expected predictions
+        for i in range(F, Fmax):
+            Y_bar = _fwd(b_plus_XW)
+            x_i = _bwd(Y_bar, a[i : i + 1], W[i : i + 1, :])
+            X_bar[:, i : i + 1] = x_i
+            b_plus_XW += np.outer(x_i, W[i, :])
         return X_bar
 
     def predict_reconstruct(self, X):
@@ -211,6 +222,108 @@ class SequentialBernoulliRBM(BernoulliRBM2):
             B = vlib.multiply_columns(Y_bar * (1 - Y_bar) * w_i, d_i)
             sum_B += B
         grad_b = np.mean(sum_B, axis=0)
+        # Provide gradients
+        return grad_a, grad_W, grad_b
+
+
+###############################################################################
+class ExactSequentialBernoulliRBM(BernoulliRBM2):
+    """
+    Two-layer Sequential Bernoulli Restricted Boltzmann Machine.
+
+    The standard RBM has a binary input vector 'x' and
+    binary output vector 'y', with energy function:
+
+        E(x,y) = -( a^T x + x^T W y + b^T y ).
+
+    However, a Markov sequence is now imposed upon the elements of the input
+    vector 'x', such that
+
+      p(x_1,x_2,...,x_F) = p(x_1) p(x_2|x_1) ... p(x_F|x_1,x_2,...,x_{F-1}).
+
+    Note that this implementation uses exact computations (i.e. summing over
+    all potential outputs 'y') for estimation and parameter gradient
+    computation.
+    """
+    def __init__(self, n_output=None, n_input=None, **kwds):
+        BernoulliRBM2.__init__(self, n_output, n_input, **kwds)
+        if self.is_RBC():
+            # soft-max
+            self._fwd = lambda E: vlib.multiply_columns(E, 1 / np.sum(E, axis=1))
+            self._bwd = lambda E: np.log(np.sum(E , axis=1))
+        else:
+            # logistic
+            self._fwd = lambda E: E / (1 + E)
+            self._bwd = lambda E: np.sum(np.log(1 + E), axis=1)
+
+    def reconstruct(self, X):
+        """
+        Computes the exact value of each sequential predictive probability,
+        p(x_i=1|x_1,x_2,...,x_{i-1}).
+
+        Input:
+            - X (array): The matrix of row-wise input cases.
+        Returns:
+            - X_bar (array): The matrix of row-wise prediction probabilities.
+        """
+        a, W, b = self.get_parameters()
+        N, F = X.shape
+        X_bar = np.zeros((N, F))
+        b_plus_XW = np.tile(b, (N, 1))  # N x H array of partial sums
+        for i in range(F):
+            w_i = W[i, :]
+            term0 = self._bwd(np.exp(b_plus_XW))        # x_i = 0
+            term1 = self._bwd(np.exp(b_plus_XW + w_i))  # x_i = 1
+            X_bar[:, i] = vlib.logistic(term1 - term0 + a[i])
+            b_plus_XW += np.outer(X[:, i], w_i)
+        return X_bar
+
+    def predict_reconstruct(self, X):
+        X_bar = self.reconstruct(X)
+        Y_bar = self.predict(X)
+        return X_bar, Y_bar
+
+    def _compute_score_gradients(self, X, Y=None):
+        # Assume unsupervised - ignore Y
+        a, W, b = self.get_parameters()
+        N, F = X.shape
+        H = len(b)
+        grad_a = np.zeros(F)
+        grad_W = np.zeros((F, H))
+        sum_diff = np.zeros((N, H))  # N x H array of partial sums
+        b_plus_XW = np.matmul(X, W) + b  # N x H array of partial sums
+        # Compute p(y=1|x_1:i-1,x_i)
+        Y_bar = self._fwd(np.exp(b_plus_XW))
+        for i in range(F - 1, -1, -1):
+            x_i = X[:, i]
+            w_i = W[i, :]
+            # Compute B_ij = b_j + sum_{k=1:i-1} x_k W_kj
+            b_plus_XW -= np.outer(x_i, w_i)
+            # Compute p(y=1|x_1:i-1,x_i=0)
+            term0 = np.exp(b_plus_XW)
+            Y_bar_0 = self._fwd(term0)
+            # Compute p(y=1|x_1:i-1,x_i=1)
+            term1 = np.exp(b_plus_XW + w_i)
+            Y_bar_1 = self._fwd(term1)
+            # Compute p(x_i=1|x_1:i-1)
+            x_tilde_i = vlib.logistic(
+                self._bwd(term1) - self._bwd(term0) + a[i]
+            )
+            # Compute p(y=1|x_1:i-1)
+            Y_tilde = (
+                vlib.multiply_columns(Y_bar_0, 1 - x_tilde_i, False)
+                + vlib.multiply_columns(Y_bar_1, x_tilde_i, False)
+            )
+            grad_a[i] = np.mean(x_i - x_tilde_i)
+            grad_W[i, :] = (
+                np.matmul(x_i, Y_bar)
+                -  np.matmul(x_tilde_i, Y_bar_1)
+                + np.matmul(x_i, sum_diff)
+            ) / N
+            # Update for i-1
+            sum_diff += Y_bar - Y_tilde
+            Y_bar = Y_bar_0
+        grad_b = np.mean(sum_diff, axis=0)
         # Provide gradients
         return grad_a, grad_W, grad_b
 

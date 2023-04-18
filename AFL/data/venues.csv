@@ -1,0 +1,33 @@
+venue,from,to,latitude,longitude,ground,suburb,state,aliases
+"Adelaide Oval",2011,,-34.9156,138.5961,"Adelaide Oval","Adelaide","SA",
+"Bellerive Oval",2012,2019,-42.8773,147.3735,"Bellerive Oval","Bellerive","TAS","Blundstone Arena"
+"Blacktown",2012,2012,-33.769444,150.859167,"Blacktown International Sportspark Oval","Rooty Hill","NSW","Blacktown ISP Oval; Blacktown ISP"
+"Bruce Stadium",1995,1995,-35.25,149.102778,"Canberra Stadium","Bruce","ACT","GIO Stadium Canberra;GIO Stadium;Bruce Stadium;National Athletics Stadium"
+"Carrara",1987,,-28.0063,153.3669,"Carrara Stadium","Gold Coast","QLD",
+"Cazaly's Stadium",2011,,-16.9358,145.7492,"Cazaly's Stadium","Westcourt","QLD",
+"Docklands",2000,,-37.8165,144.9474,"Docklands Stadium","Melbourne","VIC","Marvel Stadium;Etihad Stadium;Telstra Dome;Colonial Stadium"
+"Eureka Stadium",2017,2019,-37.53841,143.84803,"Eureka Stadium","Wendouree","VIC","Mars Stadium;Northern Oval #1;AUSTAR Arena"
+"Football Park",1991,2013,-34.88,138.495556,"Football Park","West Lakes","SA","AAMI Stadium"
+"Gabba",1981,,-27.4859,153.0381,"Brisbane Cricket Ground","Brisbane","QLD",
+"Jiangwan Stadium",2017,2019,31.3068,121.5154,"Jiangwan Stadium","Yangpu District","Shanghai","Shanghai Stadium"
+"Kardinia Park",1941,,-38.158056,144.354722,"Kardinia Park","South Geelong","VIC","GMHBA Stadium;Skilled Stadium;Shell Stadium;Baytec Stadium;Simonds Stadium"
+"Manuka Oval",1998,2019,-35.318102,149.134598,"Manuka Oval","Griffith","ACT","UNSW Canberra Oval;StarTrack Oval"
+"Marrara Oval",2004,,-12.3992,130.8872,"Marrara Oval","Darwin","NT","TIO Stadium"
+"M.C.G.",1897,,-37.8200,144.9832,"Melbourne Cricket Ground","Melbourne","VIC",
+"Moorabbin Oval",1965,1992,-37.9375,145.0439,"Moorabbin Oval","Moorabbin","VIC","RSEA Safety Park;RSEA Park"
+"North Hobart",1952,1992,-42.867778,147.315833,"North Hobart Oval","North Hobart","TAS",
+"Perth Stadium",2018,,-31.951111,115.889028,"Perth Stadium","Burswood","WA","Optus Stadium"
+"Princes Park",1897,2005,-37.7839,144.9617,"Princes Park","Carlton","VIC","Ikon Park;Visy Park;MC Labour Park;Optus Oval;Carlton Recreation Ground"
+"Riverway Stadium",2019,2019,-19.317222,146.731667,"Riverway Stadium","Townsville","QLD","Tony Ireland Stadium;Pioneer Park"
+"S.C.G.",1903,,-33.8917,151.2247,"Sydney Cricket Ground","Sydney","NSW",
+"Showground",2012,,-33.843056,151.067778,"Sydney Showground Stadium","Sydney Olympic Park","NSW","Giants Stadium;Spotless Stadium;Škoda Stadium"
+"Stad. Aust.",2002,2016,-33.847222,151.063333,"Stadium Australia","Sydney Olympic Park","NSW","ANZ Stadium;Telstra Stadium"
+"Subiaco",1987,2017,-31.9444,115.83,"Subiaco Oval","Subiaco","WA","Mueller Park;Patersons Stadium;Domain Stadium"
+"Traeger Park",2014,,-23.709039,133.875083,"Traeger Park","Alice Springs","NT","TIO Traeger Park"
+"Victoria Park",1897,1999,-37.798255,144.996443,"Victoria Park","Abbotsford","VIC",
+"W.A.C.A.",1987,2000,-31.9600,115.8797,"WACA Ground","East Perth","WA",
+"Waverley Park",1970,1999,-37.9256,145.1886,"Waverley Park","Mulgrave","VIC",
+"Wellington",2013,2015,-41.2731,174.7858,"Wellington Regional Stadium","Wellington","NZ","Sky Stadium;Westpac Stadium;WestpacTrust Stadium"
+"Western Oval",1925,1997,-37.799166,144.886748,"Whitten Oval","West Footscray","VIC","Victoria University Whitten Oval;Western Oval"
+"Windy Hill",1922,1991,-37.751919,144.919538,"Essendon Recreation Reserve","Essendon","VIC",
+"York Park",2001,2019,-41.425833,147.138889,"York Park","Launceston","TAS","University of Tasmania Stadium;Aurora Stadium"

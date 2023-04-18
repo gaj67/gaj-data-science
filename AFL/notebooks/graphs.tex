@@ -1,0 +1,31 @@
+\documentclass[a4paper]{article}
+\usepackage[a4paper,margin=25mm]{geometry}
+\usepackage{graphicx,subcaption}
+\usepackage{amsmath,amsfonts}
+\usepackage{qtree}
+\usepackage{tikz}
+\usetikzlibrary{arrows,arrows.meta,quotes}
+\usepackage{varwidth}
+
+\begin{document}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Two team matches
+\begin{figure}[hbt]
+\centering
+\begin{tikzpicture}[
+  scale=1.5,
+  cnode/.style={draw,circle,minimum size=3em,inner sep=3pt},
+  snode/.style={draw,rectangle,minimum size=3em,inner sep=3pt}
+]
+  \node[cnode] (A) at (0,0) {A};
+  \node[cnode] (B) at (4,0) {B};
+
+  % edges
+  \draw[->] (A) to[out=40,in=140,"conceded 120 points to"] (B);
+  \draw[->] (B) to[out=220,in=320,"conceded 60 points to"] (A);
+
+\end{tikzpicture}
+\end{figure}
+
+\end{document}

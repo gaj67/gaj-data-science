@@ -2,6 +2,7 @@
 This module implements code and constants to help analyse match records.
 """
 from collections import defaultdict
+from datetime import datetime
 
 import pandas as pd
 import numpy as np
@@ -15,6 +16,13 @@ from graph_analysis import (
     flow_prestige, adjusted_scores
 )
 
+
+TIMESTAMP = 'timestamp'
+HASH = 'hash'
+
+
+###################################################
+# Compute seasonal features
 
 def init_team_features(df_matches):
     """
@@ -255,3 +263,166 @@ def compute_features(df_matches):
     add_rank_features(df_features)
     add_prestige_features(df_features, df_matches)
     return df_features
+
+
+###################################################
+# Extract contextual match information
+
+def add_timestamp(df_matches):
+    """
+    Adds a comparable timestamp to all matches,
+    and sorts the matches in chronological order.
+
+    Input:
+        - df_matches (DataFrame): The selected matches.
+    """
+    date_fn = lambda s: datetime.strptime(s, DATETIME_FORMAT)
+    df_matches[TIMESTAMP] = df_matches.datetime.apply(date_fn)
+    df_matches.sort_values(TIMESTAMP, inplace=True)
+
+
+def add_hash(df_matches):
+    """
+    Adds a comparable hash to all matches for each team.
+
+    Input:
+        - df_matches (DataFrame): The selected matches or match features.
+    """
+    if 'team' in df_matches.columns:
+        # Match features
+        hash_fn = lambda m: hash(m.datetime + m.team)
+        df_matches[HASH] = df_matches.apply(hash_fn, axis=1)
+    else:
+        # Matches
+        for prefix in ['for_', 'against_']:
+            hash_fn = lambda m: hash(m.datetime + m[prefix + 'team'])
+            df_matches[prefix + HASH] = df_matches.apply(hash_fn, axis=1)
+
+
+def get_match_team(match, is_for):
+    """
+    Obtains the specified team for the match.
+    
+    Inputs:
+        - match (Pandas): The current match.
+        - is_for (bool): Indicates whether to extract the 
+            'for' team (True) or the 'against' team (False).
+    Returns:
+        - team (str): The team name.
+"""
+    return match.for_team if is_for else match.against_team
+
+
+def get_match_result(match, is_for):
+    """
+    Encodes the match result for the specified team as
+    +1 for a win, -1 for a loss, or 0 for a draw.
+    
+    Inputs:
+        - match (Pandas): The current match.
+        - is_for (bool): Indicates whether to extract the result
+            for the 'for' team (True) or the 'against' team (False).
+    Returns:
+        - res (int): The encoded result.
+    """
+    res = (
+        0 if match.for_is_draw 
+        else 1 if match.for_is_win
+        else -1
+    )    
+    if not is_for:
+        res = -res
+    return res
+
+
+def get_team_matches(df_matches, team, season=None, timestamp=None):
+    """
+    Obtains matches played by a given team.
+ 
+    If a season is specified, then only matches within that season
+    are found.
+    
+    If a timestamp is specified, then only matches prior to that 
+    timestamp are found. Assumes that add_timestamp() has already 
+    been called.
+    
+    Inputs:
+        - df_matches (DataFrame): The selected matches.
+        - team (str): The name of the team.
+        - season (int): The optional year of the season.
+        - timestamp (datetime): The optional timestamp.
+    Returns:
+        - (DataFrame): The team matches.
+    """
+    ind = (df_matches.for_team == team) | (df_matches.against_team == team)
+    if season is not None:
+        ind &= (df_matches.season == season)
+    if timestamp is not None:
+        ind &= (df_matches[TIMESTAMP] < timestamp)
+    return df_matches[ind]
+
+
+def get_previous_matches(df_matches, match, is_for):
+    """
+    Obtains all matches prior to the specified match that 
+    were played by a given team within a given season.
+    
+    Assumes that add_timestamp() has already been called.
+    
+    Inputs:
+        - df_matches (DataFrame): The selected matches.
+        - match (Pandas): The current match.
+        - is_for (bool): Indicates whether to extract matches
+            for the 'for' team (True) or the 'against' team (False).
+    Returns:
+        - (DataFrame): The previous team matches within the season.
+    """
+    team = get_match_team(match, is_for)
+    ts = getattr(match, TIMESTAMP)
+    return get_team_matches(df_matches, team, match.season, ts)
+
+
+def get_previous_match(df_matches, match, is_for):
+    """
+    Obtains the match immediately prior to the specified match
+    that was played by a given team within a given season.
+    
+    Assumes that add_timestamp() has already been called.
+    
+    Inputs:
+        - df_matches (DataFrame): The selected matches.
+        - match (Pandas): The current match.
+        - is_for (bool): Indicates whether to extract the match
+            for the 'for' team (True) or the 'against' team (False).
+    Returns:
+        - (Pandas): The previous team match within the season, 
+            or a value of None if there is no previous match.
+    """
+    df = get_previous_matches(df_matches, match, is_for)
+    if len(df) == 0:
+        return None
+    return next(df.iloc[-1:, :].itertuples())
+
+
+def get_match_features(df_features, match, is_for):
+    """
+    Obtains the (precomputed) summary features of matches prior 
+    to the specified match, that were played by a given team.
+    
+    Assumes that add_hash() has already been called on both
+    the features and the matches.
+    
+    Inputs:
+        - df_features (DataFrame): The precomputed match features.
+        - match (Pandas): The current match.
+        - is_for (bool): Indicates whether to extract features
+            for the 'for' team (True) or the 'against' team (False).
+    Returns:
+        - (Pandas): The team features, or a value of None if there 
+            are no features avaialble..
+    """
+    prefix = 'for_' if is_for else 'against_'
+    df = df_features[df_features[HASH] == getattr(match, prefix + HASH)]
+    if len(df) == 0:
+        return None
+    return next(df.itertuples())

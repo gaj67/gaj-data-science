@@ -6,49 +6,76 @@ parameter and the link parameter are the same, and the natural variate and the l
 are also the same.
 """
 import numpy as np
-from core_dist import Distribution
+from numpy import ndarray
+from core_dist import ScalarPDF, RegressionPDF, Value, Collection
+from stats_tools import logistic, logit
 
 
-class BernoulliDistribution(Distribution):
+class BernoulliDistribution(ScalarPDF):
 
-    def __init__(self, theta):
+    def __init__(self, theta: Value):
         """
-        Initialises the Bernoulli distribution.
-        
+        Initialises the Bernoulli distribution(s).
+
         Input:
-            - theta (float): The distributional parameter.
+            - theta (float or ndarray): The distributional parameter value(s).
         """
         super().__init__(theta)
 
-    def mean(self):
+    def mean(self) -> Value:
+        # Mean is just the parameter theta
         return self.parameters()[0]
 
-    def variance(self):
-        mu = self.parameters()[0]
+    def variance(self) -> Value:
+        mu = self.mean()
         return mu * (1 - mu)
 
-    def natural_parameters(self):
+    def log_prob(self, X: Value) -> Value:
         theta = self.parameters()[0]
-        eta = np.log(theta / (1 - theta))
-        return np.array([eta])
+        eta = logit(theta)
+        return np.log(1 - theta) + X * eta
 
-    def natural_variates(self, X):
-        return np.array([X])
+    def natural_parameters(self) -> Collection:
+        return (self.link_parameter(),)
 
-    def natural_means(self):
-        return np.array([self.mean()])
+    def natural_variates(self, X: Value) -> Collection:
+        return (X,)
 
-    def natural_variances(self):
-        return np.array([[self.variance()]])
+    def natural_means(self) -> Collection:
+        return (self.mean(),)
 
-    def link_parameter(self):
-        return self.natural_parameters()[0]
+    def natural_variances(self) -> ndarray:
+        return np.array([[ self.variance() ]])
 
-    def link_variate(self, X):
+    def link_parameter(self) -> Value:
+        theta = self.parameters()[0]
+        eta = logit(theta)
+        return eta
+
+    def link_variate(self, X: Value) -> Value:
         return X
 
-    def link_mean(self):
+    def link_mean(self) -> Value:
         return self.mean()
 
-    def link_variance(self):
+    def link_variance(self) -> Value:
         return self.variance()
+
+
+class BernoulliRegression(RegressionPDF):
+
+    def __init__(self, phi: ndarray):
+        """
+        Initialises the Bernoulli distribution.
+
+        Input:
+            - phi (ndarray): The regression parameters.
+        """
+        super().__init__(phi)
+
+    def _distribution(self, eta: Value) -> ScalarPDF:
+        mu = logistic(eta)
+        return BernoulliDistribution(mu)
+
+    def _independent_delta(self, X: Value, pdf: ScalarPDF) -> ndarray:
+        return np.array([], dtype=float)

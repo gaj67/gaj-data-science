@@ -1,5 +1,5 @@
 # This module provides simple implementations of a few graph-analytical techniques.
-# For convenience, we assume that the weighted adjacency matrix A has already been 
+# For convenience, we assume that the weighted adjacency matrix A has already been
 # computed for any given graph. Note that this implies that the graph vertices have
 # been ordered. Also note that we assume 'loss' graphs, such that edge-weight A_ij
 # is interpreted as the score lost from vertex v_i to vertex v_j.

@@ -1,69 +1,61 @@
 """
-This module implements the Beta distribution.
+This module implements the Gamma distribution.
 
 The natural parameters are the distributional parameters, alpha and beta.
-We choose the logit function for the link function, which means that
+We choose the log function for the link function, which means that
 the link parameter, eta, is not one of the natural parameters.
 
 For the regression model, eta depends on the regression parameters, phi.
-In addition, we choose the shape parameter, alpha, to be independent of phi.
-Hence, the other shape parameter, beta, depends on both alpha and eta.
+In addition, we choose the rate parameter, beta, to be independent of phi.
+Hence, the shape parameter, alpha, depends on both beta and eta.
 """
 import numpy as np
 from numpy import ndarray
-from scipy.stats import beta as beta_dist
+from scipy.stats import gamma as gamma_dist
 from scipy.special import digamma, polygamma
 from core_dist import ScalarPDF, RegressionPDF, Value, Collection
 
 
-class BetaDistribution(ScalarPDF):
+class GammaDistribution(ScalarPDF):
     def __init__(self, alpha: Value, beta: Value):
         """
-        Initialises the Beta distribution(s).
+        Initialises the Gamma distribution(s).
 
         Inputs:
-            - alpha (float or ndarray): The first shape parameter value(s).
-            - beta (float or ndarray): The second shape parameter value(s).
+            - alpha (float or ndarray): The shape parameter value(s).
+            - beta (float or ndarray): The rate parameter value(s).
         """
         super().__init__(alpha, beta)
 
     def mean(self) -> Value:
         alpha, beta = self.parameters()
-        return alpha / (alpha + beta)
+        return alpha / beta
 
     def variance(self) -> Value:
         alpha, beta = self.parameters()
-        nu = alpha + beta
-        mu = alpha / nu
-        return mu * (1 - mu) / (nu + 1)
+        return alpha / beta ** 2
 
     def log_prob(self, X: Value) -> Value:
         alpha, beta = self.parameters()
-        return beta_dist.logpdf(X, alpha, beta)
+        return gamma_dist.logpdf(X, alpha, scale=1.0 / beta)
 
     def natural_parameters(self) -> Collection:
         return self.parameters()
 
     def natural_variates(self, X: Value) -> Collection:
-        return (np.log(X), np.log(1 - X))
+        return (np.log(X), -X)
 
     def natural_means(self) -> Collection:
         alpha, beta = self.parameters()
-        d_alpha = digamma(alpha)
-        d_beta = digamma(beta)
-        d_nu = digamma(alpha + beta)
-        return (d_alpha - d_nu, d_beta - d_nu)
+        return (digamma(alpha) - np.log(beta), -alpha / beta)
 
     def natural_variances(self) -> ndarray:
         alpha, beta = self.parameters()
-        t_alpha = polygamma(1, alpha)
-        t_beta = polygamma(1, beta)
-        nt_nu = -polygamma(1, alpha + beta)
-        return np.array([[t_alpha + nt_nu, nt_nu], [nt_nu, t_beta + nt_nu]])
+        cov = -1 / beta
+        return np.array([[polygamma(1, alpha), cov], [cov, alpha / beta ** 2]])
 
     def link_parameter(self) -> Value:
-        alpha, beta = self.parameters()
-        return np.log(alpha / beta)
+        return np.log(self.mean())
 
     def link_variate(self, X: Value) -> Value:
         alpha, beta = self.parameters()
@@ -85,29 +77,28 @@ class BetaDistribution(ScalarPDF):
         )
 
 
-class BetaRegression(RegressionPDF):
+class GammaRegression(RegressionPDF):
     def __init__(self, alpha: float, phi: ndarray):
         """
-        Initialises the Beta regression distribution.
+        Initialises the Gamma regression distribution.
 
         Note that of the distributional parameters, alpha and beta, we have
-        chosen alpha to be independent, and beta to be dependent on alpha and
+        chosen beta to be independent, and alpha to be dependent on beta and
         on the regression model.
 
         Input:
-            - alpha (float): The independent distributional parameter.
+            - beta (float): The independent rate parameter.
             - phi (ndarray): The regression model parameters.
         """
-        super().__init__(phi, alpha)
+        super().__init__(phi, beta)
 
     def _distribution(self, eta: Value) -> ScalarPDF:
-        alpha = self.independent_parameters()[0]
-        beta = alpha * np.exp(-eta)
-        return BetaDistribution(alpha, beta)
+        beta = self.independent_parameters()[0]
+        alpha = beta * np.exp(eta)
+        return GammaDistribution(alpha, beta)
 
     def _independent_delta(self, X: Value, pdf: ScalarPDF) -> ndarray:
-        # Independent parameter is alpha, with variate Y_alpha
-        Y = pdf.natural_variates(X)[0]  # Y_alpha
-        mu = pdf.natural_means()[0]  # E[Y_alpha]
-        sigma_sq = pdf.natural_variances()[0, 0]  # Var[Y_alpha]
-        return np.mean(Y - mu) / np.mean(sigma_sq)
+        # Independent parameter is beta, with variate Y_beta = -X
+        beta = self.independent_parameters()[0]
+        mu = pdf.mean()  # -E[Y_beta]
+        return beta * np.mean(mu - X) / np.mean(mu)

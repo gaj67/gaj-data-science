@@ -7,22 +7,18 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-from match_parser import (
-    DATETIME_FORMAT,
-    ET_WIN, ET_DRAW, ET_LOSS
-)
+from match_parser import DATETIME_FORMAT, ET_WIN, ET_DRAW, ET_LOSS
 
-from graph_analysis import (
-    flow_prestige, adjusted_scores
-)
+from graph_analysis import flow_prestige, adjusted_scores
 
 
-TIMESTAMP = 'timestamp'
-HASH = 'hash'
+TIMESTAMP = "timestamp"
+HASH = "hash"
 
 
 ###################################################
 # Compute seasonal features
+
 
 def init_team_features(df_matches):
     """
@@ -42,15 +38,15 @@ def init_team_features(df_matches):
         teams = []
     else:
         season = max(df_matches.season)
-        teams = sorted(
-            set(df_matches.for_team) | set(df_matches.against_team)
-        )
+        teams = sorted(set(df_matches.for_team) | set(df_matches.against_team))
     num_teams = len(teams)
-    return pd.DataFrame({
-        'season': [season] * num_teams,
-        'team': teams,
-        'teams': [num_teams] * num_teams
-    })
+    return pd.DataFrame(
+        {
+            "season": [season] * num_teams,
+            "team": teams,
+            "teams": [num_teams] * num_teams,
+        }
+    )
 
 
 def add_wins_features(df_features, df_matches):
@@ -64,7 +60,7 @@ def add_wins_features(df_features, df_matches):
     """
     # Count team -> win, draw, loss
     WIN, DRAW, LOSS = range(3)
-    data = defaultdict(lambda : [0, 0, 0])
+    data = defaultdict(lambda: [0, 0, 0])
     for match in df_matches.itertuples():
         # Check outcome of 'for' team vs 'against' team
         outcome = match.edge_type
@@ -78,13 +74,13 @@ def add_wins_features(df_features, df_matches):
             data[match.for_team][DRAW] += 1
             data[match.against_team][DRAW] += 1
     # Add features
-    df_features['games'] = [sum(data[t]) for t in df_features.team]
-    df_features['wins'] = [data[t][WIN] for t in df_features.team]
-    df_features['draws'] = [data[t][DRAW] for t in df_features.team]
-    df_features['losses'] = [data[t][LOSS] for t in df_features.team]
+    df_features["games"] = [sum(data[t]) for t in df_features.team]
+    df_features["wins"] = [data[t][WIN] for t in df_features.team]
+    df_features["draws"] = [data[t][DRAW] for t in df_features.team]
+    df_features["losses"] = [data[t][LOSS] for t in df_features.team]
     adj_wins = df_features.wins + 0.5 * df_features.draws
     adj_losses = df_features.losses + 0.5 * df_features.draws
-    df_features['wins_ratio'] = adj_wins / (adj_wins + adj_losses)
+    df_features["wins_ratio"] = adj_wins / (adj_wins + adj_losses)
 
 
 def add_points_features(df_features, df_matches):
@@ -98,7 +94,7 @@ def add_points_features(df_features, df_matches):
     """
     # Count team -> points_for, points_against
     TEAM_SCORED, OPPONENT_SCORED = range(2)
-    data = defaultdict(lambda : [0, 0])
+    data = defaultdict(lambda: [0, 0])
     for match in df_matches.itertuples():
         for_team = match.for_team
         for_score = match.for_total_score
@@ -109,11 +105,11 @@ def add_points_features(df_features, df_matches):
         data[against_team][TEAM_SCORED] += against_score
         data[against_team][OPPONENT_SCORED] += for_score
     # Add features
-    df_features['points_for'] = [data[t][TEAM_SCORED] for t in df_features.team]
-    df_features['points_against'] = [data[t][OPPONENT_SCORED] for t in df_features.team]
+    df_features["points_for"] = [data[t][TEAM_SCORED] for t in df_features.team]
+    df_features["points_against"] = [data[t][OPPONENT_SCORED] for t in df_features.team]
     _wins = df_features.points_for
     _losses = df_features.points_against
-    df_features['points_ratio'] = _wins / (_wins + _losses)
+    df_features["points_ratio"] = _wins / (_wins + _losses)
 
 
 def add_scores_features(df_features, df_matches):
@@ -128,12 +124,16 @@ def add_scores_features(df_features, df_matches):
     """
     # Count team -> points_for, points_against
     GOALS_FOR, BEHINDS_FOR, GOALS_AGAINST, BEHINDS_AGAINST = range(4)
-    data = defaultdict(lambda : [0, 0, 0, 0])
+    data = defaultdict(lambda: [0, 0, 0, 0])
     for match in df_matches.itertuples():
-        for_goals = sum([getattr(match, 'for_goals' + str(i)) for i in range(1, 5)])
-        for_behinds = sum([getattr(match, 'for_behinds' + str(i)) for i in range(1, 5)])
-        against_goals = sum([getattr(match, 'against_goals' + str(i)) for i in range(1, 5)])
-        against_behinds = sum([getattr(match, 'against_behinds' + str(i)) for i in range(1, 5)])
+        for_goals = sum([getattr(match, "for_goals" + str(i)) for i in range(1, 5)])
+        for_behinds = sum([getattr(match, "for_behinds" + str(i)) for i in range(1, 5)])
+        against_goals = sum(
+            [getattr(match, "against_goals" + str(i)) for i in range(1, 5)]
+        )
+        against_behinds = sum(
+            [getattr(match, "against_behinds" + str(i)) for i in range(1, 5)]
+        )
         for_team = match.for_team
         data[for_team][GOALS_FOR] += for_goals
         data[for_team][BEHINDS_FOR] += for_behinds
@@ -145,18 +145,20 @@ def add_scores_features(df_features, df_matches):
         data[against_team][GOALS_AGAINST] += for_goals
         data[against_team][BEHINDS_AGAINST] += for_behinds
     # Add features
-    df_features['goals_for'] = [data[t][GOALS_FOR] for t in df_features.team]
-    df_features['behinds_for'] = [data[t][BEHINDS_FOR] for t in df_features.team]
+    df_features["goals_for"] = [data[t][GOALS_FOR] for t in df_features.team]
+    df_features["behinds_for"] = [data[t][BEHINDS_FOR] for t in df_features.team]
     gf = df_features.goals_for.values
     bf = df_features.behinds_for.values
-    df_features['accuracy_for'] = gf / (gf + bf)
-    df_features['goals_against'] = [data[t][GOALS_AGAINST] for t in df_features.team]
-    df_features['behinds_against'] = [data[t][BEHINDS_AGAINST] for t in df_features.team]
+    df_features["accuracy_for"] = gf / (gf + bf)
+    df_features["goals_against"] = [data[t][GOALS_AGAINST] for t in df_features.team]
+    df_features["behinds_against"] = [
+        data[t][BEHINDS_AGAINST] for t in df_features.team
+    ]
     ga = df_features.goals_against.values
     ba = df_features.behinds_against.values
-    df_features['accuracy_against'] = ga / (ga + ba)
-    df_features['goals_ratio'] = gf / (gf + ga)
-    df_features['behinds_ratio'] = bf / (bf + ba)
+    df_features["accuracy_against"] = ga / (ga + ba)
+    df_features["goals_ratio"] = gf / (gf + ga)
+    df_features["behinds_ratio"] = bf / (bf + ba)
 
 
 def add_rank_features(df_features):
@@ -171,13 +173,13 @@ def add_rank_features(df_features):
     points = 4 * df_features.wins + 2 * df_features.draws
     per = 100 * df_features.points_for / df_features.points_against
     df = pd.concat([points, per], axis=1, ignore_index=True)
-    df.columns = ['match_points', 'percentage']
-    df.sort_values(['match_points', 'percentage'], ascending=False, inplace=True)
-    df['rank'] = range(1, len(df) + 1)
+    df.columns = ["match_points", "percentage"]
+    df.sort_values(["match_points", "percentage"], ascending=False, inplace=True)
+    df["rank"] = range(1, len(df) + 1)
     df.sort_index(inplace=True)
-    df_features['rank'] = ranks = df['rank'].values
+    df_features["rank"] = ranks = df["rank"].values
     scale = -1.0 / (len(df) - 1)
-    df_features['rank_score'] = scale * (ranks - 1.0) + 1.0
+    df_features["rank_score"] = scale * (ranks - 1.0) + 1.0
 
 
 def compute_loss_rate_graph(teams, df_matches, for_var, against_var):
@@ -200,7 +202,7 @@ def compute_loss_rate_graph(teams, df_matches, for_var, against_var):
     """
     # Compute the adjacency matrix A of the loss graph,
     # i.e. A_ij = points scored by team j against team i.
-    team_map = { t: i for i, t in enumerate(teams) }
+    team_map = {t: i for i, t in enumerate(teams)}
     num_teams = len(teams)
     A = np.zeros((num_teams, num_teams), dtype=float)
     # Also keep track of the matrix N of games played,
@@ -234,18 +236,16 @@ def add_prestige_features(df_features, df_matches):
         - df_matches (DataFrame): The selected matches.        
     """
     A = compute_loss_rate_graph(
-        df_features.team, df_matches,
-        'for_is_win', 'against_is_win'
+        df_features.team, df_matches, "for_is_win", "against_is_win"
     )
-    df_features['wins_prestige'] = p = flow_prestige(A)
-    df_features['adj_wins_prestige'] = adjusted_scores(p)
+    df_features["wins_prestige"] = p = flow_prestige(A)
+    df_features["adj_wins_prestige"] = adjusted_scores(p)
 
     A = compute_loss_rate_graph(
-        df_features.team, df_matches,
-        'for_total_score', 'against_total_score'
+        df_features.team, df_matches, "for_total_score", "against_total_score"
     )
-    df_features['points_prestige'] = p = flow_prestige(A)
-    df_features['adj_points_prestige'] = adjusted_scores(p)
+    df_features["points_prestige"] = p = flow_prestige(A)
+    df_features["adj_points_prestige"] = adjusted_scores(p)
 
 
 def compute_features(df_matches):
@@ -268,6 +268,7 @@ def compute_features(df_matches):
 ###################################################
 # Extract contextual match information
 
+
 def add_timestamp(df_matches):
     """
     Adds a comparable timestamp to all matches,
@@ -288,14 +289,14 @@ def add_hash(df_matches):
     Input:
         - df_matches (DataFrame): The selected matches or match features.
     """
-    if 'team' in df_matches.columns:
+    if "team" in df_matches.columns:
         # Match features
         hash_fn = lambda m: hash(m.datetime + m.team)
         df_matches[HASH] = df_matches.apply(hash_fn, axis=1)
     else:
         # Matches
-        for prefix in ['for_', 'against_']:
-            hash_fn = lambda m: hash(m.datetime + m[prefix + 'team'])
+        for prefix in ["for_", "against_"]:
+            hash_fn = lambda m: hash(m.datetime + m[prefix + "team"])
             df_matches[prefix + HASH] = df_matches.apply(hash_fn, axis=1)
 
 
@@ -325,14 +326,29 @@ def get_match_result(match, is_for):
     Returns:
         - res (int): The encoded result.
     """
-    res = (
-        0 if match.for_is_draw 
-        else 1 if match.for_is_win
-        else -1
-    )    
+    res = 0 if match.for_is_draw else 1 if match.for_is_win else -1
     if not is_for:
         res = -res
     return res
+
+
+def get_match_home(match, is_for):
+    """
+    Determines whether or not the specified team played the
+    given match at their home ground. Encodes the resulting
+    Boolean value as an integer, i.e. True -> 1, False -> 0.
+    
+    Inputs:
+        - match (Pandas): The current match.
+        - is_for (bool): Indicates whether to extract the result
+            for the 'for' team (True) or the 'against' team (False).
+    Returns:
+        - home (int): The binary indicator.
+    """
+    if is_for:
+        return int(match.for_is_home)
+    else:
+        return int(match.against_is_home)
 
 
 def get_team_matches(df_matches, team, season=None, timestamp=None):
@@ -356,9 +372,9 @@ def get_team_matches(df_matches, team, season=None, timestamp=None):
     """
     ind = (df_matches.for_team == team) | (df_matches.against_team == team)
     if season is not None:
-        ind &= (df_matches.season == season)
+        ind &= df_matches.season == season
     if timestamp is not None:
-        ind &= (df_matches[TIMESTAMP] < timestamp)
+        ind &= df_matches[TIMESTAMP] < timestamp
     return df_matches[ind]
 
 
@@ -421,7 +437,7 @@ def get_match_features(df_features, match, is_for):
         - (Pandas): The team features, or a value of None if there 
             are no features avaialble..
     """
-    prefix = 'for_' if is_for else 'against_'
+    prefix = "for_" if is_for else "against_"
     df = df_features[df_features[HASH] == getattr(match, prefix + HASH)]
     if len(df) == 0:
         return None

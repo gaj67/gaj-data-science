@@ -1,9 +1,12 @@
 """
 This module implements the Bernoulli distribution.
 
-Note that we choose the link function to be the logit function, such that the natural
-parameter and the link parameter are the same, and the natural variate and the link variate
-are also the same.
+The distributional parameter, theta, is also the mean, mu.
+However, the natural parameter, eta, is the logit of theta (and thus mu).
+Hence, we choose the logit as the link function, such that the link
+parameter is identical to the natural parameter.
+
+For the regression model, eta depends on the regression parameters, phi.
 """
 import numpy as np
 from numpy import ndarray
@@ -12,7 +15,6 @@ from stats_tools import logistic, logit
 
 
 class BernoulliDistribution(ScalarPDF):
-
     def __init__(self, theta: Value):
         """
         Initialises the Bernoulli distribution(s).
@@ -45,7 +47,7 @@ class BernoulliDistribution(ScalarPDF):
         return (self.mean(),)
 
     def natural_variances(self) -> ndarray:
-        return np.array([[ self.variance() ]])
+        return np.array([[self.variance()]])
 
     def link_parameter(self) -> Value:
         theta = self.parameters()[0]
@@ -63,10 +65,9 @@ class BernoulliDistribution(ScalarPDF):
 
 
 class BernoulliRegression(RegressionPDF):
-
     def __init__(self, phi: ndarray):
         """
-        Initialises the Bernoulli distribution.
+        Initialises the Bernoulli regression distribution.
 
         Input:
             - phi (ndarray): The regression parameters.
@@ -78,4 +79,5 @@ class BernoulliRegression(RegressionPDF):
         return BernoulliDistribution(mu)
 
     def _independent_delta(self, X: Value, pdf: ScalarPDF) -> ndarray:
+        # There are no independent parameters
         return np.array([], dtype=float)

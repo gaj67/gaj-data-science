@@ -304,9 +304,7 @@ class RegressionPDF(ABC):
         if len(Z.shape) == 2:
             # Multiple data
             N = Z.shape[0]
-            lhs = sum(
-                [sigma_sq[k] * np.outer(Z[k,:], Z[k,:]) for k in range(N)]
-            ) / N
+            lhs = sum([sigma_sq[k] * np.outer(Z[k, :], Z[k, :]) for k in range(N)]) / N
             rhs = (X - mu) @ Z / N
         else:
             # Single datum
@@ -327,7 +325,9 @@ class RegressionPDF(ABC):
         """
         raise NotImplementedError
 
-    def fit(self, X: Value, Z: ndarray, max_iters: int = 100, min_tol: float = 1e-6) -> Tuple[float, int, float]:
+    def fit(
+        self, X: Value, Z: ndarray, max_iters: int = 100, min_tol: float = 1e-6
+    ) -> Tuple[float, int, float]:
         """
         Re-estimates the regression model parameters and the independent
         distributional parameters from the given observation(s).

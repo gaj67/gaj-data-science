@@ -37,13 +37,13 @@ def weighted_mean(weights, x, y=None):
     else:
         return np.mean(w * x * y) / np.mean(w)
 
-    
+
 def weighted_cov(weights, x, y):
     w = np.asarray(weights)
     m_xy = weighted_mean(w, x, y)
     m_x = weighted_mean(w, x)
     m_y = weighted_mean(w, y)
-    return m_xy - m_x * m_y 
+    return m_xy - m_x * m_y
 
 
 def fit_linear(x, y, weights=None):

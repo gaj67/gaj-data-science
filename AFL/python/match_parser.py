@@ -33,11 +33,11 @@ from bs4 import BeautifulSoup
 DATETIME_FORMAT = "%a %d-%b-%Y %I:%M %p"
 
 # Define result/edge types from 'for' team to 'against' team
-ET_WIN = 'defeated'
-ET_DRAW = 'drew-with'
-ET_LOSS = 'lost-to'
+ET_WIN = "defeated"
+ET_DRAW = "drew-with"
+ET_LOSS = "lost-to"
 
-    
+
 def get_team_files(dir_path):
     """
     Obtains the list of paths of team files within
@@ -50,7 +50,7 @@ def get_team_files(dir_path):
     """
     team_files = []
     for f in os.listdir(dir_path):
-        if f.startswith('.'):
+        if f.startswith("."):
             continue
         team_file = os.path.join(dir_path, f)
         if os.path.isfile(team_file):
@@ -97,20 +97,20 @@ def parse_team_seasons(team_file, min_season=0, max_season=9999):
     Returns:
         - matches (dict: int -> DataFrame): A season -> matches mapping.
     """
-    with open(team_file, 'rt') as f:
-        soup = BeautifulSoup(f.read(), 'html.parser')
+    with open(team_file, "rt") as f:
+        soup = BeautifulSoup(f.read(), "html.parser")
     matches = {}
-    for table in soup.find_all('table'):
-        th = table.find('th')
+    for table in soup.find_all("table"):
+        th = table.find("th")
         season = int(th.text)
         if season < min_season or season > max_season:
             continue
-        for i, row in enumerate(table.find_all('tr')):
+        for i, row in enumerate(table.find_all("tr")):
             if i == 0:
-                fields = _dedup([th.text.strip() for th in row.find_all('th')])
+                fields = _dedup([th.text.strip() for th in row.find_all("th")])
                 df_matches = pd.DataFrame(columns=fields)
             else:
-                data = [td.text.strip() for td in row.find_all('td')]
+                data = [td.text.strip() for td in row.find_all("td")]
                 if len(data) == len(fields):
                     df_matches.loc[i - 1] = data
         matches[season] = df_matches
@@ -118,7 +118,7 @@ def parse_team_seasons(team_file, min_season=0, max_season=9999):
 
 
 def split_score(score_str):
-    goals, behinds = score_str.split('.')
+    goals, behinds = score_str.split(".")
     return int(goals), int(behinds)
 
 
@@ -126,7 +126,7 @@ def parse_quarter_scores(scores_str):
     scores = []
     prev_goals = 0
     prev_behinds = 0
-    for score_str in scores_str.split(' '):
+    for score_str in scores_str.split(" "):
         goals, behinds = split_score(score_str)
         scores.append(goals - prev_goals)
         scores.append(behinds - prev_behinds)
@@ -183,36 +183,30 @@ def extract_match_data(matches, use_old_names=True):
         - (DataFrame): The data-frame of all matches.
     """
     # Define new fields for the data-frame
-    env_fields = ['season', 'round', 'datetime', 'venue']
+    env_fields = ["season", "round", "datetime", "venue"]
     quarter_score_fields = [
-        f + str(i) for i in range(1, 5) for f in ['goals', 'behinds']
+        f + str(i) for i in range(1, 5) for f in ["goals", "behinds"]
     ]
     team_fields = (
-        ['team', 'is_home'] + quarter_score_fields
-        + ['total_score', 'match_points']
-        + ['is_win', 'is_draw', 'is_loss']
+        ["team", "is_home"]
+        + quarter_score_fields
+        + ["total_score", "match_points"]
+        + ["is_win", "is_draw", "is_loss"]
     )
-    for_team_fields = ['for_' + f for f in team_fields]
-    against_team_fields = ['against_' + f for f in team_fields]
-    result_fields = ['edge_type']
-    edge_fields = (
-        env_fields + for_team_fields + against_team_fields
-        + result_fields
-    )
+    for_team_fields = ["for_" + f for f in team_fields]
+    against_team_fields = ["against_" + f for f in team_fields]
+    result_fields = ["edge_type"]
+    edge_fields = env_fields + for_team_fields + against_team_fields + result_fields
 
     df_edges = pd.DataFrame(columns=edge_fields)
     num_accepted = 0
     num_rejected = 0
     for team_name, team_matches in matches.items():
         for season, df_matches in team_matches.items():
-            for_team = (
-                old_team_name(team_name, season)
-                if use_old_names else team_name
-            )
+            for_team = old_team_name(team_name, season) if use_old_names else team_name
             for match in df_matches.itertuples():
                 against_team = (
-                    match.Opponent if use_old_names
-                    else new_team_name(match.Opponent)
+                    match.Opponent if use_old_names else new_team_name(match.Opponent)
                 )
                 if not precedes(for_team, against_team):
                     # Ignore this edge; it will be extracted for the opposing team.
@@ -220,24 +214,24 @@ def extract_match_data(matches, use_old_names=True):
                     continue
                 num_accepted += 1
                 env_info = [season, match.Rnd, match.Date, match.Venue]
-                for_match_points = (4 if match.R == 'W' else 2 if match.R == 'D' else 0)
+                for_match_points = 4 if match.R == "W" else 2 if match.R == "D" else 0
                 against_match_points = 4 - for_match_points
                 for_match_scores = parse_quarter_scores(match.Scoring3)
                 against_match_scores = parse_quarter_scores(match.Scoring5)
                 for_info = (
-                    [for_team, match.T == 'H'] + for_match_scores 
+                    [for_team, match.T == "H"]
+                    + for_match_scores
                     + [int(match.F), for_match_points]
-                    + [match.R == 'W', match.R == 'D', match.R == 'L']
+                    + [match.R == "W", match.R == "D", match.R == "L"]
                 )
                 against_info = (
-                    [against_team, match.T == 'A'] + against_match_scores 
+                    [against_team, match.T == "A"]
+                    + against_match_scores
                     + [int(match.A), against_match_points]
-                    + [match.R == 'L', match.R == 'D', match.R == 'W']
+                    + [match.R == "L", match.R == "D", match.R == "W"]
                 )
                 result = (
-                    ET_WIN if match.R == 'W' 
-                    else ET_DRAW if match.R == 'D' 
-                    else ET_LOSS
+                    ET_WIN if match.R == "W" else ET_DRAW if match.R == "D" else ET_LOSS
                 )
                 edge_info = env_info + for_info + against_info + [result]
                 df_edges.loc[len(df_edges), :] = edge_info

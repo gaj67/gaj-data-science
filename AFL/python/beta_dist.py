@@ -79,8 +79,8 @@ class BetaDistribution(ScalarPDF):
         alpha, beta = self.parameters()
         Sigma = self.natural_variances()
         return (
-            alpha ** 2 * Sigma[0, 0]
-            + beta ** 2 * Sigma[1, 1]
+            alpha**2 * Sigma[0, 0]
+            + beta**2 * Sigma[1, 1]
             - 2 * alpha * beta * Sigma[0, 1]
         )
 
@@ -105,9 +105,9 @@ class BetaRegression(RegressionPDF):
         beta = alpha * np.exp(-eta)
         return BetaDistribution(alpha, beta)
 
-    def _independent_delta(self, X: Value, pdf: ScalarPDF) -> ndarray:
+    def _independent_delta(self, X: Value, W: Value, pdf: ScalarPDF) -> ndarray:
         # Independent parameter is alpha, with variate Y_alpha
         Y = pdf.natural_variates(X)[0]  # Y_alpha
         mu = pdf.natural_means()[0]  # E[Y_alpha]
         sigma_sq = pdf.natural_variances()[0, 0]  # Var[Y_alpha]
-        return np.mean(Y - mu) / np.mean(sigma_sq)
+        return np.sum(W * (Y - mu)) / np.sum(W * sigma_sq)

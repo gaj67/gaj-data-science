@@ -28,13 +28,13 @@ def flow_prestige(A):
     Computes the flow-prestige score for each of the N vertices
     in the graph. These scores are non-negative and sum to unity.
     See notebooks/B_graph_analytics.ipynb for more details.
-    
+
     The graph edges specify loss-rate, such that the weight A_ij
     of edge v_i -> v_j indicates the average transfer per unit time
     of score from vertex v_i to vertex v_j. This transfer represents
     a loss of prestige by vertex v_i and a gain of prestige by
     vertex v_j.
-    
+
     Inputs:
         - A (ndarray): The N x N weighted adjacency matrix.
     Returns:

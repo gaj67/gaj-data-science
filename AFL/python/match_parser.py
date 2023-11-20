@@ -175,7 +175,7 @@ def precedes(team1, team2):
 def extract_match_data(matches, use_old_names=True):
     """
     Interprets the scraped match data.
-    
+
     Input:
         - matches (dict: str -> int -> DataFrame): The raw match data, keyed by
             team -> season -> rounds.

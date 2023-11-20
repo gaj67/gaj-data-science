@@ -77,7 +77,3 @@ class BernoulliRegression(RegressionPDF):
     def _distribution(self, eta: Value) -> ScalarPDF:
         mu = logistic(eta)
         return BernoulliDistribution(mu)
-
-    def _independent_delta(self, X: Value, pdf: ScalarPDF) -> ndarray:
-        # There are no independent parameters
-        return np.array([], dtype=float)

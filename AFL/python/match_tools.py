@@ -25,9 +25,9 @@ def init_team_features(df_matches):
     Initialises the team features for one or more
     seasons of matches, or a subset of such matches.
     If multiple seasons are given, then all teams
-    will be included as if all matches occurred 
+    will be included as if all matches occurred
     within the last season.
-    
+
     Input:
         - df_matches (DataFrame): The selected matches.
     Returns:
@@ -51,12 +51,12 @@ def init_team_features(df_matches):
 
 def add_wins_features(df_features, df_matches):
     """
-    Updates the features with the total wins, 
+    Updates the features with the total wins,
     draws and losses for each team.
-    
+
     Inputs:
         - df_features (DataFrame): The pre-initialised features.
-        - df_matches (DataFrame): The selected matches.        
+        - df_matches (DataFrame): The selected matches.
     """
     # Count team -> win, draw, loss
     WIN, DRAW, LOSS = range(3)
@@ -85,12 +85,12 @@ def add_wins_features(df_features, df_matches):
 
 def add_points_features(df_features, df_matches):
     """
-    Updates the features with the total number of 
+    Updates the features with the total number of
     points scored by each team and against each team.
-    
+
     Inputs:
         - df_features (DataFrame): The pre-initialised features.
-        - df_matches (DataFrame): The selected matches.        
+        - df_matches (DataFrame): The selected matches.
     """
     # Count team -> points_for, points_against
     TEAM_SCORED, OPPONENT_SCORED = range(2)
@@ -114,13 +114,13 @@ def add_points_features(df_features, df_matches):
 
 def add_scores_features(df_features, df_matches):
     """
-    Updates the features with the total number of 
-    goals and behinds scored by each team and against 
+    Updates the features with the total number of
+    goals and behinds scored by each team and against
     each team.
-    
+
     Inputs:
         - df_features (DataFrame): The pre-initialised features.
-        - df_matches (DataFrame): The selected matches.        
+        - df_matches (DataFrame): The selected matches.
     """
     # Count team -> points_for, points_against
     GOALS_FOR, BEHINDS_FOR, GOALS_AGAINST, BEHINDS_AGAINST = range(4)
@@ -166,7 +166,7 @@ def add_rank_features(df_features):
     Updates the features with the rankings for each team.
     Requires both 'add_wins_features()' and
     'add_points_features()' to have been called first.
-    
+
     Inputs:
         - df_features (DataFrame): The pre-initialised features.
     """
@@ -186,10 +186,10 @@ def compute_loss_rate_graph(teams, df_matches, for_var, against_var):
     """
     Computes the weighted adjacency matrix of the loss-rate
     graph of all matches. Each edge v_i -> v_j is directed
-    from the losing team (vertex) v_i to the winning team 
+    from the losing team (vertex) v_i to the winning team
     (vertex) v_j. The edge weight A_ij is the average (per-match)
     score lost by v_i and gained by v_j.
-    
+
     Inputs:
         - teams (list): The ordered list of vertices.
         - df_matches (DataFrame): The selected matches.
@@ -230,10 +230,10 @@ def add_prestige_features(df_features, df_matches):
     """
     Updates the features with the prestige scores for each team,
     computed from the loss-rate graph of all matches.
-    
+
     Inputs:
         - df_features (DataFrame): The pre-initialised features.
-        - df_matches (DataFrame): The selected matches.        
+        - df_matches (DataFrame): The selected matches.
     """
     A = compute_loss_rate_graph(
         df_features.team, df_matches, "for_is_win", "against_is_win"
@@ -251,10 +251,10 @@ def add_prestige_features(df_features, df_matches):
 def compute_features(df_matches):
     """
     Computes all features for the given collection of matches.
-    
+
     Inputs:
         - df_features (DataFrame): The pre-initialised features.
-        - df_matches (DataFrame): The selected matches.        
+        - df_matches (DataFrame): The selected matches.
     """
     df_features = init_team_features(df_matches)
     add_wins_features(df_features, df_matches)
@@ -303,14 +303,13 @@ def add_hash(df_matches):
 def get_match_team(match, is_for):
     """
     Obtains the specified team for the match.
-    
+
     Inputs:
         - match (Pandas): The current match.
-        - is_for (bool): Indicates whether to extract the 
+        - is_for (bool): Indicates whether to extract the
             'for' team (True) or the 'against' team (False).
     Returns:
-        - team (str): The team name.
-"""
+        - team (str): The team name."""
     return match.for_team if is_for else match.against_team
 
 
@@ -318,7 +317,7 @@ def get_match_result(match, is_for):
     """
     Encodes the match result for the specified team as
     +1 for a win, -1 for a loss, or 0 for a draw.
-    
+
     Inputs:
         - match (Pandas): The current match.
         - is_for (bool): Indicates whether to extract the result
@@ -337,7 +336,7 @@ def get_match_home(match, is_for):
     Determines whether or not the specified team played the
     given match at their home ground. Encodes the resulting
     Boolean value as an integer, i.e. True -> 1, False -> 0.
-    
+
     Inputs:
         - match (Pandas): The current match.
         - is_for (bool): Indicates whether to extract the result
@@ -354,14 +353,14 @@ def get_match_home(match, is_for):
 def get_team_matches(df_matches, team, season=None, timestamp=None):
     """
     Obtains matches played by a given team.
- 
+
     If a season is specified, then only matches within that season
     are found.
-    
-    If a timestamp is specified, then only matches prior to that 
-    timestamp are found. Assumes that add_timestamp() has already 
+
+    If a timestamp is specified, then only matches prior to that
+    timestamp are found. Assumes that add_timestamp() has already
     been called.
-    
+
     Inputs:
         - df_matches (DataFrame): The selected matches.
         - team (str): The name of the team.
@@ -380,11 +379,11 @@ def get_team_matches(df_matches, team, season=None, timestamp=None):
 
 def get_previous_matches(df_matches, match, is_for):
     """
-    Obtains all matches prior to the specified match that 
+    Obtains all matches prior to the specified match that
     were played by a given team within a given season.
-    
+
     Assumes that add_timestamp() has already been called.
-    
+
     Inputs:
         - df_matches (DataFrame): The selected matches.
         - match (Pandas): The current match.
@@ -402,16 +401,16 @@ def get_previous_match(df_matches, match, is_for):
     """
     Obtains the match immediately prior to the specified match
     that was played by a given team within a given season.
-    
+
     Assumes that add_timestamp() has already been called.
-    
+
     Inputs:
         - df_matches (DataFrame): The selected matches.
         - match (Pandas): The current match.
         - is_for (bool): Indicates whether to extract the match
             for the 'for' team (True) or the 'against' team (False).
     Returns:
-        - (Pandas): The previous team match within the season, 
+        - (Pandas): The previous team match within the season,
             or a value of None if there is no previous match.
     """
     df = get_previous_matches(df_matches, match, is_for)
@@ -422,23 +421,42 @@ def get_previous_match(df_matches, match, is_for):
 
 def get_match_features(df_features, match, is_for):
     """
-    Obtains the (precomputed) summary features of matches prior 
+    Obtains the (precomputed) summary features of matches prior
     to the specified match, that were played by a given team.
-    
+
     Assumes that add_hash() has already been called on both
     the features and the matches.
-    
+
     Inputs:
         - df_features (DataFrame): The precomputed match features.
         - match (Pandas): The current match.
         - is_for (bool): Indicates whether to extract features
             for the 'for' team (True) or the 'against' team (False).
     Returns:
-        - (Pandas): The team features, or a value of None if there 
-            are no features avaialble..
+        - (Pandas): The team features, or a value of None if there
+            are no features avaialble.
     """
     prefix = "for_" if is_for else "against_"
     df = df_features[df_features[HASH] == getattr(match, prefix + HASH)]
     if len(df) == 0:
         return None
     return next(df.itertuples())
+
+
+def get_match_score(match, is_for):
+    """
+    Obtains the total number of points scored in the given match
+    by the specified team.
+
+    Inputs:
+        - match (Pandas): The current match.
+        - is_for (bool): Indicates whether to extract the score
+            for the 'for' team (True) or the 'against' team (False).
+    Returns:
+        - score (int): The team score.
+    """
+
+    if is_for:
+        return match.for_total_score
+    else:
+        return match.against_total_score

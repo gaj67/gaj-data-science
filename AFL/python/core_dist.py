@@ -19,17 +19,28 @@ the link parameter (eta) that is explained by the regression model.
 """
 
 from abc import ABC, abstractmethod
-from typing import Tuple, Union, List
+from typing import Tuple, Union, List, Optional
 import numpy as np
 from numpy import ndarray
 from numpy.linalg import solve
 
 
-# A Value represents one parameter or variate, which may be single-valued
-# or multi-valued.
+"""
+A Value represents the 'value' of a single parameter or variate, which may in
+fact be either single-valued (i.e. scalar) or multi-valued (i.e. an array of
+different values).
+"""
 Value = Union[float, ndarray]
-# A Collection represents one or more parameters or variates.
+"""
+A Collection represents the 'value(s)' of one or more parameters or variates
+(either single-valued or multi-valued) in some fixed order.
+"""
 Collection = Tuple[Value]
+"""
+A ScalarCollection represents the scalar value(s) of one or more parameters or
+variates in some fixed order.
+"""
+ScalarCollection = Tuple[float]
 
 
 class ScalarPDF(ABC):
@@ -37,9 +48,9 @@ class ScalarPDF(ABC):
     A probability distribution of a scalar variate, X.
     """
 
-    def __init__(self, *theta):
+    def __init__(self, *theta: Collection):
         """
-        Initialises the distribution.
+        Initialises the distribution(s).
 
         Each parameter may have either a single value or multiple values.
         If all parameters are single-valued, then only a single distribution
@@ -52,7 +63,7 @@ class ScalarPDF(ABC):
         rather than single-valued.
 
         Input:
-            - theta (array of float or ndarray): The parameter values.
+            - theta (tuple of float or ndarray): The parameter value(s).
         """
         params = []
         size = 1
@@ -218,15 +229,18 @@ class RegressionPDF(ABC):
     the distributional parameters depend upon a regression model involving
     covariates, Z. Any distributional parameters not depending upon the
     regression model are treated as independent parameters.
+
+    Note that the independent parameters must all be scalar valued, since the
+    regression model induces a single (conditional) distribution.
     """
 
-    def __init__(self, phi: ndarray, *theta):
+    def __init__(self, phi: ndarray, *theta: ScalarCollection):
         """
-        Initialises the distribution.
+        Initialises the regression distribution.
 
         Input:
             - phi (ndarray): The regression model parameters.
-            - theta (array of float): The independent distributional parameters.
+            - theta (tuple of float): The independent distributional parameters.
         """
         self._reg_params = phi
         self._params = np.array(theta)
@@ -287,13 +301,16 @@ class RegressionPDF(ABC):
         eta = self.link_parameter(Z)
         return self._distribution(eta)
 
-    def _regression_delta(self, X: Value, Z: ndarray, pdf: ScalarPDF) -> ndarray:
+    def _regression_delta(
+        self, X: Value, Z: ndarray, W: Value, pdf: ScalarPDF
+    ) -> ndarray:
         """
         Computes the update (delta) for the regression model parameters.
 
         Inputs:
             - X (float or ndarray): The value(s) of the response variate.
             - Z (ndarray): The value(s) of the explanatory covariates.
+            - W (float or ndarray): The weight(s) of the covariates.
             - pdf (ScalarPDF): The regression distribution(s).
         Returns:
             - delta (ndarray): The update vector.
@@ -304,29 +321,35 @@ class RegressionPDF(ABC):
         if len(Z.shape) == 2:
             # Multiple data
             N = Z.shape[0]
-            lhs = sum([sigma_sq[k] * np.outer(Z[k, :], Z[k, :]) for k in range(N)]) / N
-            rhs = (X - mu) @ Z / N
+            lhs = sum(W[k] * sigma_sq[k] * np.outer(Z[k, :], Z[k, :]) for k in range(N))
+            rhs = (W * (X - mu)) @ Z
         else:
             # Single datum
             lhs = sigma_sq * np.outer(Z, Z)
             rhs = (X - mu) * Z
         return solve(lhs, rhs)
 
-    @abstractmethod
-    def _independent_delta(self, X: Value, pdf: ScalarPDF) -> ndarray:
+    def _independent_delta(self, X: Value, W: Value, pdf: ScalarPDF) -> ndarray:
         """
         Computes the update (delta) for the independent distributional parameters.
 
         Inputs:
             - X (float or ndarray): The value(s) of the response variate.
+            - W (float or ndarray): The weight(s) of the covariates.
             - pdf (ScalarPDF): The regression distribution(s).
         Returns:
             - delta (ndarray): The (possibly empty) update vector.
         """
-        raise NotImplementedError
+        # By default, there are no independent parameters
+        return np.array([], dtype=float)
 
     def fit(
-        self, X: Value, Z: ndarray, max_iters: int = 100, min_tol: float = 1e-6
+        self,
+        X: Value,
+        Z: ndarray,
+        W: Optional[Value] = None,
+        max_iters: int = 100,
+        min_tol: float = 1e-6,
     ) -> Tuple[float, int, float]:
         """
         Re-estimates the regression model parameters and the independent
@@ -335,6 +358,7 @@ class RegressionPDF(ABC):
         Inputs:
             - X (float or ndarray): The value(s) of the response variate.
             - Z (ndarray): The value(s) of the explanatory covariates.
+            - W (float or ndarray): The optional weight(s) of the covariates.
             - max_iters (float): The maximum number of iterations; defaults to 100.
             - min_tol (float): The minimum score tolerance to indicate convergence;
                 defaults to 1e-6.
@@ -343,27 +367,29 @@ class RegressionPDF(ABC):
             - num_iters (int): The number of iterations performed.
             - tol (float): The final score tolerance.
         """
+        if W is None:
+            W = np.ones(Z.shape[0]) if len(Z.shape) == 2 else 1.0
+        tot_W = np.sum(W)
         # Obtain current score
         pdf = self.distribution(Z)
-        score0 = np.mean(pdf.log_prob(X))
+        score0 = np.sum(W * pdf.log_prob(X)) / tot_W
         tol = 0.0
         # Fit data
-        N = len(X)
         num_iters = 0
         while num_iters < max_iters:
             num_iters += 1
             # Update regression parameter estimates
-            delta_phi = self._regression_delta(X, Z, pdf)
+            delta_phi = self._regression_delta(X, Z, W, pdf)
             phi = self.regression_parameters()
             phi += delta_phi
             # Update independent parameter estimates
             theta = self.independent_parameters()
             if len(theta) > 0:
-                delta_theta = self._independent_delta(X, pdf)
+                delta_theta = self._independent_delta(X, W, pdf)
                 theta += delta_theta
             # Obtain new score
             pdf = self.distribution(Z)
-            score1 = np.mean(pdf.log_prob(X))
+            score1 = np.sum(W * pdf.log_prob(X)) / tot_W
             tol = score1 - score0
             score0 = score1
             if np.abs(tol) < min_tol:

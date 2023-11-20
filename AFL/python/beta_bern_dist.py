@@ -67,7 +67,7 @@ class BetaBernoulliDistribution(ScalarPDF):
 
 
 class BetaBernoulliRegression(RegressionPDF):
-    def __init__(self, phi: ndarray):
+    def __init__(self, alpha: float, phi: ndarray):
         """
         Initialises the Beta-Bernoulli regression distribution.
 
@@ -86,9 +86,9 @@ class BetaBernoulliRegression(RegressionPDF):
         beta = alpha * np.exp(-eta)
         return BetaBernoulliDistribution(alpha, beta)
 
-    def _independent_delta(self, X: Value, pdf: ScalarPDF) -> ndarray:
+    def _independent_delta(self, X: Value, W: Value, pdf: ScalarPDF) -> ndarray:
         # Independent parameter is alpha, with variate Y_alpha = X / alpha
         alpha = self.independent_parameters()[0]
         mu = pdf.mean()  # E[Y_alpha] * alpha
         sigma_sq = mu * (1 - mu)  # Var[Y_alpha] * alpha^2
-        return alpha * np.mean(X - mu) / np.mean(sigma_sq)
+        return alpha * np.sum(W * (X - mu)) / np.sum(W * sigma_sq)

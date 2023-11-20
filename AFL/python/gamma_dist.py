@@ -33,7 +33,7 @@ class GammaDistribution(ScalarPDF):
 
     def variance(self) -> Value:
         alpha, beta = self.parameters()
-        return alpha / beta ** 2
+        return alpha / beta**2
 
     def log_prob(self, X: Value) -> Value:
         alpha, beta = self.parameters()
@@ -52,7 +52,7 @@ class GammaDistribution(ScalarPDF):
     def natural_variances(self) -> ndarray:
         alpha, beta = self.parameters()
         cov = -1 / beta
-        return np.array([[polygamma(1, alpha), cov], [cov, alpha / beta ** 2]])
+        return np.array([[polygamma(1, alpha), cov], [cov, alpha / beta**2]])
 
     def link_parameter(self) -> Value:
         return np.log(self.mean())
@@ -71,8 +71,8 @@ class GammaDistribution(ScalarPDF):
         alpha, beta = self.parameters()
         Sigma = self.natural_variances()
         return (
-            alpha ** 2 * Sigma[0, 0]
-            + beta ** 2 * Sigma[1, 1]
+            alpha**2 * Sigma[0, 0]
+            + beta**2 * Sigma[1, 1]
             - 2 * alpha * beta * Sigma[0, 1]
         )
 
@@ -97,8 +97,8 @@ class GammaRegression(RegressionPDF):
         alpha = beta * np.exp(eta)
         return GammaDistribution(alpha, beta)
 
-    def _independent_delta(self, X: Value, pdf: ScalarPDF) -> ndarray:
+    def _independent_delta(self, X: Value, W: Value, pdf: ScalarPDF) -> ndarray:
         # Independent parameter is beta, with variate Y_beta = -X
         beta = self.independent_parameters()[0]
         mu = pdf.mean()  # -E[Y_beta]
-        return beta * np.mean(mu - X) / np.mean(mu)
+        return beta * np.sum(W * (mu - X)) / np.sum(W * mu)

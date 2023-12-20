@@ -13,19 +13,27 @@ import numpy as np
 from numpy import ndarray
 from scipy.stats import beta as beta_dist
 from scipy.special import digamma, polygamma
-from core_dist import ScalarPDF, RegressionPDF, Value, Collection
+from core_dist import ScalarPDF, Value, Values, Scalars
+
+
+# Assume Jeffreys' prior:
+DEFAULT_ALPHA = 0.5
+DEFAULT_BETA = 0.5
 
 
 class BetaDistribution(ScalarPDF):
-    def __init__(self, alpha: Value, beta: Value):
+    def __init__(self, alpha: Value = DEFAULT_ALPHA, beta: Value = DEFAULT_BETA):
         """
         Initialises the Beta distribution(s).
 
-        Inputs:
+        Input:
             - alpha (float or ndarray): The first shape parameter value(s).
             - beta (float or ndarray): The second shape parameter value(s).
         """
         super().__init__(alpha, beta)
+
+    def default_parameters(self) -> Scalars:
+        return (DEFAULT_ALPHA, DEFAULT_BETA)
 
     def mean(self) -> Value:
         alpha, beta = self.parameters()
@@ -41,73 +49,75 @@ class BetaDistribution(ScalarPDF):
         alpha, beta = self.parameters()
         return beta_dist.logpdf(X, alpha, beta)
 
-    def natural_parameters(self) -> Collection:
-        return self.parameters()
-
-    def natural_variates(self, X: Value) -> Collection:
-        return (np.log(X), np.log(1 - X))
-
-    def natural_means(self) -> Collection:
+    def link_parameters(self) -> Values:
         alpha, beta = self.parameters()
-        d_alpha = digamma(alpha)
-        d_beta = digamma(beta)
-        d_nu = digamma(alpha + beta)
-        return (d_alpha - d_nu, d_beta - d_nu)
+        eta = np.log(alpha / beta)
+        return (eta, alpha)
 
-    def natural_variances(self) -> ndarray:
-        alpha, beta = self.parameters()
-        t_alpha = polygamma(1, alpha)
-        t_beta = polygamma(1, beta)
-        nt_nu = -polygamma(1, alpha + beta)
-        return np.array([[t_alpha + nt_nu, nt_nu], [nt_nu, t_beta + nt_nu]])
-
-    def link_parameter(self) -> Value:
-        alpha, beta = self.parameters()
-        return np.log(alpha / beta)
-
-    def link_variate(self, X: Value) -> Value:
-        alpha, beta = self.parameters()
-        Y_alpha, Y_beta = self.natural_variates(X)
-        return alpha * Y_alpha - beta * Y_beta
-
-    def link_mean(self) -> Value:
-        alpha, beta = self.parameters()
-        mu_alpha, mu_beta = self.natural_means()
-        return alpha * mu_alpha - beta * mu_beta
-
-    def link_variance(self) -> Value:
-        alpha, beta = self.parameters()
-        Sigma = self.natural_variances()
-        return (
-            alpha**2 * Sigma[0, 0]
-            + beta**2 * Sigma[1, 1]
-            - 2 * alpha * beta * Sigma[0, 1]
-        )
-
-
-class BetaRegression(RegressionPDF):
-    def __init__(self, alpha: float, phi: ndarray):
-        """
-        Initialises the Beta regression distribution.
-
-        Note that of the distributional parameters, alpha and beta, we have
-        chosen alpha to be independent, and beta to be dependent on alpha and
-        on the regression model.
-
-        Input:
-            - alpha (float): The independent distributional parameter.
-            - phi (ndarray): The regression model parameters.
-        """
-        super().__init__(phi, alpha)
-
-    def _distribution(self, eta: Value) -> ScalarPDF:
-        alpha = self.independent_parameters()[0]
+    def link_inversion(self, eta: Value, *psi: Values) -> Values:
+        alpha = psi[0] if len(psi) > 0 else self.parameters()[0]
         beta = alpha * np.exp(-eta)
-        return BetaDistribution(alpha, beta)
+        return (alpha, beta)
 
-    def _independent_delta(self, X: Value, W: Value, pdf: ScalarPDF) -> ndarray:
-        # Independent parameter is alpha, with variate Y_alpha
-        Y = pdf.natural_variates(X)[0]  # Y_alpha
-        mu = pdf.natural_means()[0]  # E[Y_alpha]
-        sigma_sq = pdf.natural_variances()[0, 0]  # Var[Y_alpha]
-        return np.sum(W * (Y - mu)) / np.sum(W * sigma_sq)
+    def link_variates(self, X: Value) -> Values:
+        alpha, beta = self.parameters()
+        Y_alpha, Y_beta = np.log(X), np.log(1 - X)
+        Y_eta = -beta * Y_beta
+        Y_psi = Y_alpha + beta / alpha * Y_beta
+        return (Y_eta, Y_psi)
+
+    def link_means(self) -> Values:
+        alpha, beta = self.parameters()
+        d_nu = digamma(alpha + beta)
+        mu_alpha = digamma(alpha) - d_nu  # E[Y_alpha]
+        mu_beta = digamma(beta) - d_nu  # E[Y_beta]
+        mu_eta = -beta * mu_beta  # E[Y_eta]
+        mu_psi = mu_alpha + beta / alpha * mu_beta  # E[Y_psi]
+        return (mu_eta, mu_psi)
+
+    def link_variances(self) -> ndarray:
+        alpha, beta = self.parameters()
+        cov_ab = -polygamma(1, alpha + beta)  # Cov[Y_alpha, Y_beta]
+        v_alpha = polygamma(1, alpha) + cov_ab  # Var[Y_alpha]
+        v_beta = polygamma(1, beta) + cov_ab  # Var[Y_beta]
+        v_eta = beta**2 * v_beta  # Var[Y_eta]
+        k = beta / alpha
+        v_psi = v_alpha + k**2 * v_beta + 2 * k * cov_ab  # Var[Y_psi]
+        cov_pe = -beta * (cov_ab + k * v_beta)  # Cov[Y_psi, Y_eta]
+        return np.array([[v_eta, cov_pe], [cov_pe, v_psi]])
+
+
+###############################################################################
+
+if __name__ == "__main__":
+    # Test default parameter
+    bd = BetaDistribution()
+    assert bd.parameters() == (DEFAULT_ALPHA, DEFAULT_BETA)
+    mu = bd.mean()
+    assert mu == DEFAULT_ALPHA / (DEFAULT_ALPHA + DEFAULT_BETA)
+    assert bd.variance() == mu * (1 - mu) / (1 + DEFAULT_ALPHA + DEFAULT_BETA)
+    assert len(bd.link_parameters()) == 2
+    assert bd.link_parameters()[0] == np.log(DEFAULT_ALPHA / DEFAULT_BETA)  # eta
+    assert bd.link_parameters()[1] == bd.parameters()[0]  # psi = alpha
+
+    # Test fitting multiple observations
+    X = np.array([0.25, 0.75])
+    bd = BetaDistribution()
+    res = bd.fit(X)
+    mu = bd.mean()
+    assert np.abs(mu - 0.5) < 1e-3
+    alpha, beta = bd.parameters()
+    assert np.abs(alpha - beta) < 1e-3
+
+    # Test regression
+    from core_dist import RegressionPDF, no_intercept, add_intercept
+
+    # Test regression without intercept
+    br = RegressionPDF(BetaDistribution())
+    Z = no_intercept([-1, +1])
+    res = br.fit(X, Z)
+    phi = br.regression_parameters()
+    assert len(phi) == 1
+    mu = br.mean(Z)
+    print(mu)
+    print(br._pdf.parameters())

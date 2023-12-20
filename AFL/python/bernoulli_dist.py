@@ -10,12 +10,15 @@ For the regression model, eta depends on the regression parameters, phi.
 """
 import numpy as np
 from numpy import ndarray
-from core_dist import ScalarPDF, RegressionPDF, Value, Collection
+from core_dist import ScalarPDF, Value, Values, Scalars
 from stats_tools import logistic, logit
 
 
+DEFAULT_THETA = 0.5
+
+
 class BernoulliDistribution(ScalarPDF):
-    def __init__(self, theta: Value):
+    def __init__(self, theta: Value = DEFAULT_THETA):
         """
         Initialises the Bernoulli distribution(s).
 
@@ -24,56 +27,94 @@ class BernoulliDistribution(ScalarPDF):
         """
         super().__init__(theta)
 
+    def default_parameters(self) -> Scalars:
+        return (DEFAULT_THETA,)
+
     def mean(self) -> Value:
-        # Mean is just the parameter theta
-        return self.parameters()[0]
+        theta = self.parameters()[0]
+        return theta
 
     def variance(self) -> Value:
-        mu = self.mean()
-        return mu * (1 - mu)
+        theta = self.parameters()[0]
+        return theta * (1 - theta)
 
     def log_prob(self, X: Value) -> Value:
         theta = self.parameters()[0]
-        eta = logit(theta)
-        return np.log(1 - theta) + X * eta
+        return X * np.log(theta) + (1 - X) * np.log(1 - theta)
 
-    def natural_parameters(self) -> Collection:
-        return (self.link_parameter(),)
-
-    def natural_variates(self, X: Value) -> Collection:
-        return (X,)
-
-    def natural_means(self) -> Collection:
-        return (self.mean(),)
-
-    def natural_variances(self) -> ndarray:
-        return np.array([[self.variance()]])
-
-    def link_parameter(self) -> Value:
+    def link_parameters(self) -> Values:
         theta = self.parameters()[0]
         eta = logit(theta)
-        return eta
+        return (eta,)
 
-    def link_variate(self, X: Value) -> Value:
-        return X
+    def link_inversion(self, eta: Value, *psi: Values) -> Values:
+        theta = logistic(eta)
+        return (theta,)
 
-    def link_mean(self) -> Value:
-        return self.mean()
+    def link_variates(self, X: Value) -> Values:
+        return (X,)
 
-    def link_variance(self) -> Value:
-        return self.variance()
+    def link_means(self) -> Values:
+        return (self.mean(),)
+
+    def link_variances(self) -> ndarray:
+        return np.array([[self.variance()]])
 
 
-class BernoulliRegression(RegressionPDF):
-    def __init__(self, phi: ndarray):
-        """
-        Initialises the Bernoulli regression distribution.
+###############################################################################
 
-        Input:
-            - phi (ndarray): The regression parameters.
-        """
-        super().__init__(phi)
+if __name__ == "__main__":
+    # Test default parameter
+    bd = BernoulliDistribution()
+    assert bd.parameters() == (DEFAULT_THETA,)
+    assert bd.mean() == DEFAULT_THETA
+    assert bd.variance() == DEFAULT_THETA * (1 - DEFAULT_THETA)
+    assert len(bd.link_parameters()) == 1
+    assert bd.link_parameters()[0] == 0.0
+    X = np.array([0, 1, 1, 0])
+    assert all(bd.link_variates(X)[0] == X)
 
-    def _distribution(self, eta: Value) -> ScalarPDF:
-        mu = logistic(eta)
-        return BernoulliDistribution(mu)
+    # Test specified parameter
+    theta = 0.123456
+    bd = BernoulliDistribution(theta)
+    assert bd.parameters() == (theta,)
+    assert bd.mean() == theta
+    assert bd.variance() == theta * (1 - theta)
+
+    # Test fitting 1 observation - be careful with 0 or 1!
+    for x in [1e-3, 1, 0.5, 0.1]:
+        bd = BernoulliDistribution()
+        res = bd.fit(x)
+        assert np.abs(bd.parameters()[0] - x) < 1e-6
+
+    # Test fitting multiple observations
+    for n in range(1, 11):
+        X = np.random.randint(0, 2, n)
+        bd = BernoulliDistribution()
+        res = bd.fit(X)
+        assert np.abs(bd.parameters()[0] - np.mean(X)) < 1e-6
+
+    # Test regression
+    from core_dist import RegressionPDF, no_intercept, add_intercept
+
+    # Test regression without intercept
+    br = RegressionPDF(BernoulliDistribution())
+    X = np.array([1, 0])
+    Z = no_intercept([1, -1])
+    res = br.fit(X, Z)
+    phi = br.regression_parameters()
+    assert len(phi) == 1
+    mu = br.mean(Z)
+    for x, m in zip(X, mu):
+        assert np.abs(m - x) < 1e-6
+
+    # Test regression with intercept (or bias)
+    br = RegressionPDF(BernoulliDistribution())
+    X = np.array([1, 0, 1, 1, 0])
+    Z = add_intercept([1, 1, -1, -1, -1])
+    res = br.fit(X, Z)
+    assert len(br.regression_parameters()) == 2
+    mu = br.mean(add_intercept([1]))
+    assert np.abs(mu - 0.5) < 1e-6
+    mu = br.mean(add_intercept([-1]))
+    assert np.abs(mu - 2 / 3) < 1e-6

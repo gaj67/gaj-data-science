@@ -2,20 +2,16 @@
 This module defines a base class for probability distribution functions (PDFs)
 of a discrete or continuous scalar variate.
 
-We assume for convenience that every PDF p(X|theta) is a member of "the" exponential family,
-and thus has natural parameters (eta) and natural variates (Y) that might not be the same
-as the default parameters (theta) and the given variate (X).
+We assume the implicit existence of an invertible "link" function that maps the
+distributional parameters into an internal representation involving a scalar
+link parameter and a complementary vector of independent parameters (if any are
+required). Each such internal parameter will have a corresponding variate with
+a mean and variance, and these internal variates will have covariances.
 
-We also assume the implicit existence of an invertible link function (g) that maps the mean
-mu of the distribution into a so-called link parameter (also eta). Tne derivative of the
-log-likehood function with respect to this link parameter defines the difference between
-the so-called link variate (Y_eta) and its mean (mu_eta). Note that the link parameter is
-not necessarily related to the natural distributional parameters, despite traditionally
-having the same label (i.e. both are called eta).
-
-The module also defines a base class for PDFs that depend upon covariates (Z)
-via a regression model with parameters (phi). The basic assumption is that it is
-the link parameter (eta) that is explained by the regression model.
+This module also defines a base class for conditional PDFs that depend upon
+covariates via a regression model with regression parameters. The basic
+assumption is that the conditional distribution is controlled by the link
+parameter, which in turn is determined by the regression model.
 """
 
 from abc import ABC, abstractmethod
@@ -32,15 +28,55 @@ different values).
 """
 Value = Union[float, ndarray]
 """
-A Collection represents the 'value(s)' of one or more parameters or variates
+A Values represents the 'value(s)' of one or more parameters or variates
 (either single-valued or multi-valued) in some fixed order.
 """
-Collection = Tuple[Value]
+Values = Tuple[Value]
 """
-A ScalarCollection represents the scalar value(s) of one or more parameters or
+A Scalars represents the scalar value(s) of one or more parameters or
 variates in some fixed order.
 """
-ScalarCollection = Tuple[float]
+Scalars = Tuple[float]
+
+
+###############################################################################
+# Useful functions for regression:
+
+
+def add_intercept(column, *columns) -> ndarray:
+    """
+    Wraps the given vector(s) into a column matrix suitable for covariates
+    in a RegressionPDF. The first column is an additional unit vector
+    representing an intercept or bias term in the regresson model.
+
+    Inputs:
+        - column (array-like): The values of the first covariate.
+        - columns (tuple of array-like): The optional values of subsequent
+            covariates.
+    Returns:
+        - matrix (ndarray): The two-dimensional covariate matrix.
+    """
+    const = np.ones(len(column))
+    return np.stack((const, column) + columns, axis=1)
+
+
+def no_intercept(column, *columns) -> ndarray:
+    """
+    Wraps the given vector(s) into a column matrix suitable for covariates
+    in a RegressionPDF.
+
+    Inputs:
+        - column (array-like): The values of the first covariate.
+        - columns (tuple of array-like): The optional values of subsequent
+            covariates.
+    Returns:
+        - matrix (ndarray): The two-dimensional covariate matrix.
+    """
+    return np.stack((column,) + columns, axis=1)
+
+
+###############################################################################
+# Base distribution class:
 
 
 class ScalarPDF(ABC):
@@ -48,7 +84,7 @@ class ScalarPDF(ABC):
     A probability distribution of a scalar variate, X.
     """
 
-    def __init__(self, *theta: Collection):
+    def __init__(self, *theta: Values):
         """
         Initialises the distribution(s).
 
@@ -61,6 +97,15 @@ class ScalarPDF(ABC):
         indicates a collection of distributions, rather than a single
         distribution. As such, all computations will be multi-valued
         rather than single-valued.
+
+        Input:
+            - theta (tuple of float or ndarray): The parameter value(s).
+        """
+        self.set_parameters(*theta)
+
+    def set_parameters(self, *theta: Values):
+        """
+        Initialises the distributional parameter value(s).
 
         Input:
             - theta (tuple of float or ndarray): The parameter value(s).
@@ -87,15 +132,33 @@ class ScalarPDF(ABC):
 
     def __len__(self):
         """
-        Determines whether the instance represents a single distribution
-        or multiple distributions.
+        Determines the number of distributions represented by this instance.
 
         Returns:
-            - length (int): The number of distributions represented.
+            - length (int): The number of distributions.
         """
         return self._size
 
-    def parameters(self) -> Collection:
+    def reset(self):
+        """
+        Resets the distributional parameters to their default (scalar) values.
+        """
+        self.set_parameters(*self.default_parameters())
+
+    @abstractmethod
+    def default_parameters(self) -> Scalars:
+        """
+        Provides default (scalar) values of the distributional parameters.
+
+        Returns:
+            - theta (tuple of float): The default parameter values.
+        """
+        raise NotImplementedError
+
+    # ----------------------
+    # Standard PDF methods:
+
+    def parameters(self) -> Values:
         """
         Provides the values of the distributional parameters.
 
@@ -125,92 +188,6 @@ class ScalarPDF(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def natural_parameters(self) -> Collection:
-        """
-        Computes the values of the natural parameters.
-
-        Returns:
-            - eta (tuple of float or ndarray): The natural parameter values.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def natural_variates(self, X: Value) -> Collection:
-        """
-        Computes the values of the natural variates from the given variate.
-
-        Input:
-            - X (float or ndarray): The value(s) of the distributional variate.
-        Returns:
-            - Y (tuple of float or ndarray): The natural variate values.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def natural_means(self) -> Collection:
-        """
-        Computes the means of the natural variates.
-
-        Returns:
-            - mu (tuple of float or ndarray): The natural variate means.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def natural_variances(self) -> ndarray:
-        """
-        Computes the variances and covariances of the natural variates.
-
-        Returns:
-            - Sigma (ndarray): The variance matrix (or tensor) of the
-                natural variates.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def link_parameter(self) -> Value:
-        """
-        Computes the value(s) of the link parameter from the mean(s) via the
-        link function.
-
-        Returns:
-            - eta (float or ndarray): The link parameter value(s).
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def link_variate(self, X: Value) -> Value:
-        """
-        Computes the value(s) of the link variate from the given variate.
-
-        Input:
-            - X (float or ndarray): The value(s) of the distributional variate.
-        Returns:
-            - Y (float or ndarray): The link variate value(s).
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def link_mean(self) -> Value:
-        """
-        Computes the mean(s) of the link variate.
-
-        Returns:
-            - mu (float or ndarray): The link variate mean(s).
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def link_variance(self) -> Value:
-        """
-        Computes the variance(s) of the link variate.
-
-        Returns:
-            - sigma_sq (float or ndarray): The link variate variance(s).
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def log_prob(self, X: Value) -> Value:
         """
         Computes the log-likelihood(s) of the given data.
@@ -222,28 +199,191 @@ class ScalarPDF(ABC):
         """
         raise NotImplementedError
 
+    # -------------------------------------------
+    # Reparameterisation via link parameter + independent parameters:
+
+    @abstractmethod
+    def link_parameters(self) -> Values:
+        """
+        Computes the value(s) of the link parameter, and optionally the
+        value(s) of any independent parameters.
+        The link parameter value(s) will always be located at index 0.
+
+        This is a generalisation of the GLM link function, which now maps the
+        distributional parameters into internal parameters.
+
+        Returns:
+            - params (tuple of float or ndarray): The internal parameter values.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def link_inversion(self, eta: Value, *psi: Values) -> Values:
+        """
+        Computes the value(s) of the distributional parameters from the given
+        value(s) of the link parameter and the independent parameters (if any).
+
+        Note that if the independent parameters exist but are not specified,
+        then their current values will be used instead.
+
+        This is a generalisation of the inverse GLM link function, which now
+        maps the internal parameters into distributional parameters.
+
+        Input:
+            - eta (float or ndarray): The link parameter value(s).
+            - psi (tuple of float or ndarray): The independent parameter values.
+        Returns:
+            - theta (tuple of float or ndarray): The distributional parameter
+                value(s).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def link_variates(self, X: Value) -> Values:
+        """
+        Computes the value(s) of the link variate, and optionally the
+        value(s) of any independent variates.
+        The link variate value(s) will always be located at index 0.
+
+        Input:
+            - X (float or ndarray): The value(s) of the distributional variate.
+
+        Returns:
+            - Y (tuple of float or ndarray): The internal variate values.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def link_means(self) -> Values:
+        """
+        Computes the mean(s) of the link variate, and optionlly the mean(s) of
+        any independent variates.
+        The link mean value(s) will always be located at index 0.
+
+        Returns:
+            - mu (tuple of float or ndarray): The internal variate means.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def link_variances(self) -> ndarray:
+        """
+        Computes the variance(s) of the link variate, and optionally the
+        variances and covariances of all independent variates, and the
+        covariances between the link variate and the independent variates.
+        The link variance value(s) will always be located at index [0, 0].
+
+        Returns:
+            - Sigma (ndarray): The variances and covariances of all internal
+                variates.
+        """
+        raise NotImplementedError
+
+    def fit(
+        self,
+        X: Value,
+        W: Optional[Value] = None,
+        max_iters: int = 100,
+        min_tol: float = 1e-6,
+    ) -> Tuple[float, int, float]:
+        """
+        Re-estimates the PDF parameters from the given observation(s).
+
+        Inputs:
+            - X (float or ndarray): The value(s) of the response variate.
+            - W (float or ndarray): The optional weight(s) of the covariates.
+            - max_iters (float): The maximum number of iterations; defaults to 100.
+            - min_tol (float): The minimum score tolerance to indicate convergence;
+                defaults to 1e-6.
+        Returns:
+            - score (float): The mean log-likelihood of the data.
+            - num_iters (int): The number of iterations performed.
+            - tol (float): The final score tolerance.
+        """
+        # Enforce a single distribution, i.e. scalar parameter values
+        if len(self) > 1:
+            self.reset()
+        # Allow for single or multiple observations
+        if isinstance(X, ndarray):
+            # Obtain a weight for each observation
+            if W is None:
+                W = np.ones(len(X))
+            elif not isinstance(W, ndarray) or len(W) != len(X):
+                raise ValueError("Incompatible weights!")
+            tot_W = np.sum(W)
+            # Specify weighted mean function
+            mean_fn = lambda t: (W @ np.column_stack(t)) / tot_W
+        else:
+            # No weights or averaging required
+            mean_fn = np.array
+            tot_W = W = 1.0
+        # Obtain current score
+        score = np.sum(W * self.log_prob(X)) / tot_W
+        tol = 0.0
+        # Fit data
+        num_iters = 0
+        while num_iters < max_iters:
+            num_iters += 1
+            # Update internal parameters
+            Y = mean_fn(self.link_variates(X))
+            mu = np.array(self.link_means())
+            vars = self.link_variances()
+            delta = solve(vars, Y - mu)
+            params = np.array(self.link_parameters()) + delta
+            # Update distributional parameters
+            self.set_parameters(*self.link_inversion(*params))
+            # Obtain new score
+            new_score = np.sum(W * self.log_prob(X)) / tot_W
+            tol = new_score - score
+            score = new_score
+            if np.abs(tol) < min_tol:
+                break
+        return score, num_iters, tol
+
+
+###############################################################################
+# Regression class:
+
 
 class RegressionPDF(ABC):
     """
-    A probability distribution of a scalar variate, X, for which some or all of
-    the distributional parameters depend upon a regression model involving
-    covariates, Z. Any distributional parameters not depending upon the
-    regression model are treated as independent parameters.
-
-    Note that the independent parameters must all be scalar valued, since the
-    regression model induces a single (conditional) distribution.
+    A conditional probability distribution of a scalar variate, X, that depends
+    upon a regression model involving covariates, Z.
     """
 
-    def __init__(self, phi: ndarray, *theta: ScalarCollection):
+    def __init__(self, pdf: ScalarPDF, phi: Optional[ndarray] = None):
         """
-        Initialises the regression distribution.
+        Initialises the conditional distribution using an underlying
+        marginal distribution.
+
+        The independent parameters are obtained from the marginal distribution.
+        Note that if these parameters are multi-valued, then the marginal
+        distribution will be reset with its default (scalar) parameter values.
+
+        The regression model will override the value(s) of the link
+        parameter. Note that if the regression model parameters are not
+        supplied here, then they must be obtained by fitting the
+        conditional distribution to observed data.
 
         Input:
-            - phi (ndarray): The regression model parameters.
-            - theta (tuple of float): The independent distributional parameters.
+            - pdf (ScalarPDF): The underlying probability distribution.
+            - phi (ndarray): The optional regression model parameters.
         """
+        self._pdf = pdf
         self._reg_params = phi
-        self._params = np.array(theta)
+        for param in self.independent_parameters():
+            if isinstance(param, ndarray):
+                pdf.reset()
+                break
+
+    def independent_parameters(self) -> Scalars:
+        """
+        Provides the values of the independent distributional parameters.
+
+        Returns:
+            - psi (tuple of float): The (possibly empty) parameter values.
+        """
+        return self._pdf.link_parameters()[1:]
 
     def regression_parameters(self) -> ndarray:
         """
@@ -252,96 +392,135 @@ class RegressionPDF(ABC):
         Returns:
             - phi (ndarray): An array of parameter values.
         """
-        return self._reg_params
+        phi = self._reg_params
+        if phi is None:
+            raise ValueError("Regression parameters have not been specified!")
+        return phi
 
-    def independent_parameters(self) -> ndarray:
+    def _init_regression_parameters(self, num_params: int):
         """
-        Provides the values of the independent distributional parameters.
+        Initialises default values of the regression parameters.
 
+        Input:
+            - num_params (int): The number of regression parameters.
+        """
+        self._reg_params = (1e-2 / num_params) * np.ones(num_params)
+
+    def log_prob(self, X: Value, Z: ndarray) -> Value:
+        """
+        Computes the conditional log-likelihood(s) of the given data.
+
+        Inputs:
+            - X (float or ndarray): The value(s) of the response variate.
+            - Z (ndarray): The value(s) of the covariates.
         Returns:
-            - theta (array): A (possibly empty) array of parameter values.
+            - log_prob (float or ndarray): The log-likelihood(s).
         """
-        return self._params
+        eta = self._regress(Z, self.regression_parameters())
+        self._pdf.set_parameters(*self._pdf.link_inversion(eta))
+        return self._pdf.log_prob(X)
 
-    def link_parameter(self, Z: ndarray) -> Value:
+    def mean(self, Z: ndarray) -> Value:
         """
-        Computes the value(s) of the link parameter from the regression model.
+        Computes the conditional mean(s) for the given covariates.
+
+        Inputs:
+            - Z (ndarray): The value(s) of the covariates.
+        Returns:
+            - mu (float or ndarray): The predicted mean(s).
+        """
+        eta = self._regress(Z, self.regression_parameters())
+        self._pdf.set_parameters(*self._pdf.link_inversion(eta))
+        return self._pdf.mean()
+
+    def _regress(self, Z: ndarray, phi: ndarray) -> Value:
+        """
+        Evaluates the regression function at the covariate value(s).
 
         Input:
             - Z (ndarray): The value(s) of the covariates.
+            - phi (ndarray): The regression model parameters.
         Returns:
-            - eta (float or ndarray): The link parameter value(s).
+            - f (float or ndarray): The function value(s).
         """
-        # Assume a linear (or affine) model for convenience
-        return Z @ self.regression_parameters()
+        # Assume a linear model for convenience
+        return Z @ phi
 
-    @abstractmethod
-    def _distribution(self, eta: Value) -> ScalarPDF:
+    def _compute_score(self, X: Value, Z: ndarray, W: Value, *psi: Values) -> float:
         """
-        Creates a distribution (or a collection of distributions) from the
-        independent parameters and the value(s) of the link parameter.
-
-        Input:
-            - eta (float or ndarray): The link parameter value(s).
-        Returns:
-            - pdf (ScalarPDF): The distribution(s).
-        """
-        raise NotImplementedError
-
-    def distribution(self, Z: ndarray) -> ScalarPDF:
-        """
-        Creates a distribution (or a collection of distributions) from the
-        value(s) of the covariates.
-
-        Input:
-            - Z (ndarray): The value(s) of the covariates.
-        Returns:
-            - pdf (ScalarPDF): The distribution(s).
-        """
-        eta = self.link_parameter(Z)
-        return self._distribution(eta)
-
-    def _regression_delta(
-        self, X: Value, Z: ndarray, W: Value, pdf: ScalarPDF
-    ) -> ndarray:
-        """
-        Computes the update (delta) for the regression model parameters.
+        Updates the distributional parameters and computes the log-likelihood score.
 
         Inputs:
             - X (float or ndarray): The value(s) of the response variate.
             - Z (ndarray): The value(s) of the explanatory covariates.
             - W (float or ndarray): The weight(s) of the covariates.
-            - pdf (ScalarPDF): The regression distribution(s).
+            - psi (tuple of float or ndarray): The independent parameter values.
         Returns:
-            - delta (ndarray): The update vector.
+            - score (float): The score.
         """
-        Y = pdf.link_variate(X)
-        mu = pdf.link_mean()
-        sigma_sq = pdf.link_variance()
-        if len(Z.shape) == 2:
-            # Multiple data
-            N = Z.shape[0]
-            lhs = sum(W[k] * sigma_sq[k] * np.outer(Z[k, :], Z[k, :]) for k in range(N))
-            rhs = (W * (X - mu)) @ Z
-        else:
-            # Single datum
-            lhs = sigma_sq * np.outer(Z, Z)
-            rhs = (X - mu) * Z
-        return solve(lhs, rhs)
+        eta = self._regress(Z, self._reg_params)
+        self._pdf.set_parameters(*self._pdf.link_inversion(eta, *psi))
+        score = np.sum(W * self._pdf.log_prob(X)) / np.sum(W)
+        return score
 
-    def _independent_delta(self, X: Value, W: Value, pdf: ScalarPDF) -> ndarray:
+    def _compute_deltas(
+        self, X: ndarray, Z: ndarray, W: ndarray
+    ) -> Tuple[ndarray, ndarray]:
         """
-        Computes the update (delta) for the independent distributional parameters.
+        Computes the updates (deltas) for the regression model parameters
+        and the independent parameters (if any).
 
         Inputs:
-            - X (float or ndarray): The value(s) of the response variate.
-            - W (float or ndarray): The weight(s) of the covariates.
-            - pdf (ScalarPDF): The regression distribution(s).
+            - X (ndarray): The values of the response variate.
+            - Z (ndarray): The values of the explanatory covariates.
+            - W (ndarray): The weights of the covariates.
         Returns:
-            - delta (ndarray): The (possibly empty) update vector.
+            - delta_phi (ndarray): The regression parameters update vector.
+            - delta_psi (ndarray): The independent parameters update vector.
         """
-        # By default, there are no independent parameters
-        return np.array([], dtype=float)
+        # The task is to solve the matrix equation:
+        #   [v_phi cov^T] * [d_phi] = [r_phi]
+        #   [cov   v_psi]   [d_psi]   [r_psi]
+        # using block matrix inversion. An answer (for v_phi invertible) is:
+        #   d_psi = S^-1 * (r_psi - cov * v_phi^-1 * r_phi),
+        #   d_phi = v_phi^-1 * (r_phi - cov^T * d_psi),
+        # where S is the Schur complement:
+        #   S = v_psi - cov * v_phi^-1 * cov^T.
+
+        # Obtain distributional info
+        Y = self._pdf.link_variates(X)
+        mu = self._pdf.link_means()
+        vars = self._pdf.link_variances()
+        # Extract link parameter info
+        Y_eta = Y[0]
+        mu_eta = mu[0]  # E[Y_eta]
+        v_eta = vars[0, 0]  # Var[Y_eta]
+        # Compute regression Y_phi, E[Y_phi] and Var[Y_phi]
+        N = len(X)
+        v_phi = sum(W[k] * v_eta[k] * np.outer(Z[k, :], Z[k, :]) for k in range(N))
+        r_phi = (W * (Y_eta - mu_eta)) @ Z
+        # Inversion step 1: d_phi' = v_phi^-1 * r_phi
+        d_phi = solve(v_phi, r_phi)
+        if len(Y) == 1:
+            # No independent parameters - just compute delta_phi
+            return d_phi, np.array([])
+        # Compute independent Y_psi, E[Y_psi] and Var[Y_psi]
+        Y_psi = np.column_stack(Y[1:])
+        mu_psi = np.column_stack(mu[1:])  # E[Y_psi]
+        r_psi = W @ (Y_psi - mu_psi)
+        v_psi = vars[1:, 1:]  # Var[Y_psi]
+        v_psi = sum(W[k] * v_psi[:, :, k] for k in range(N))
+        # Extract covariances between link and independent parameters
+        cov = vars[0, 1:]  # Cov[Y_eta, Y_psi]
+        # Convert to regression covariance, Cov[Y_psi, Y_phi]
+        cov = sum(W[k] * np.outer(cov[:, k], Z[k, :]) for k in range(N))
+        # Inversion step 2: S = v_psi - cov * v_phi^-1 * cov^T
+        S = v_psi - cov @ solve(v_phi, cov.T)
+        # Inversion step 3: d_psi = S^-1 * (r_psi - cov * d_phi')
+        d_psi = solve(S, r_psi - cov @ d_phi)
+        # Inversion step 4: d_phi = d_phi' - v_phi^-1 * cov^T * d_psi
+        d_phi -= solve(v_phi, cov.T @ d_psi)
+        return d_phi, d_psi
 
     def fit(
         self,
@@ -367,31 +546,52 @@ class RegressionPDF(ABC):
             - num_iters (int): The number of iterations performed.
             - tol (float): The final score tolerance.
         """
-        if W is None:
-            W = np.ones(Z.shape[0]) if len(Z.shape) == 2 else 1.0
+        # Allow for single or multiple observations
+        if not isinstance(Z, ndarray):
+            raise ValueError("Incompatible covariates!")
+        if isinstance(X, ndarray):
+            # Multiple observations
+            if len(X.shape) != 1:
+                raise ValueError("Incompatible variates!")
+            if len(Z.shape) != 2 or Z.shape[0] != len(X):
+                raise ValueError("Incompatible covariates!")
+        else:
+            # Single observation - convert to multiple form
+            X = np.array([X])
+            if len(Z.shape) != 1:
+                raise ValueError("Incompatible covariates!")
+            Z = Z.reshape((1, -1))
+        # Obtain a weight for each observation
+        if W is None or not isinstance(W, ndarray):
+            W = np.ones(len(X))
+        elif len(W.shape) != 1 or W.shape[0] != len(X):
+            raise ValueError("Incompatible weights!")
         tot_W = np.sum(W)
+        # Check regression parameters
+        num_params = Z.shape[1]
+        if self._reg_params is None:
+            self._init_regression_parameters(num_params)
+        elif len(self._reg_params) != num_params:
+            raise ValueError("Incompatible regression parameters!")
         # Obtain current score
-        pdf = self.distribution(Z)
-        score0 = np.sum(W * pdf.log_prob(X)) / tot_W
+        score = self._compute_score(X, Z, W)
         tol = 0.0
         # Fit data
         num_iters = 0
         while num_iters < max_iters:
             num_iters += 1
+            d_phi, d_psi = self._compute_deltas(X, Z, W)
             # Update regression parameter estimates
-            delta_phi = self._regression_delta(X, Z, W, pdf)
             phi = self.regression_parameters()
-            phi += delta_phi
-            # Update independent parameter estimates
-            theta = self.independent_parameters()
-            if len(theta) > 0:
-                delta_theta = self._independent_delta(X, W, pdf)
-                theta += delta_theta
-            # Obtain new score
-            pdf = self.distribution(Z)
-            score1 = np.sum(W * pdf.log_prob(X)) / tot_W
-            tol = score1 - score0
-            score0 = score1
+            phi += d_phi
+            # Update independent parameters (if any)
+            psi = self.independent_parameters()
+            if len(psi) > 0:
+                psi = np.array(psi) + d_psi
+            # Update distributional parameters and score
+            new_score = self._compute_score(X, Z, W, *psi)
+            tol = new_score - score
+            score = new_score
             if np.abs(tol) < min_tol:
                 break
-        return score0, num_iters, tol
+        return score, num_iters, tol

@@ -28,7 +28,6 @@ DEFAULT_BETA = 0.5
 
 
 class BetaBernoulliDistribution(ScalarPDF):
-
     def __init__(self, alpha: Value = DEFAULT_ALPHA, beta: Value = DEFAULT_BETA):
         """
         Initialises the Beta-Bernoulli distribution(s).
@@ -109,10 +108,10 @@ if __name__ == "__main__":
     assert np.abs(alpha / beta - 3) < 1e-5
 
     # Test regression
-    from core_dist import RegressionPDF, no_intercept, add_intercept
+    from core_dist import no_intercept, add_intercept
 
     # Test regression without intercept
-    br = RegressionPDF(BetaBernoulliDistribution())
+    br = BetaBernoulliDistribution().regressor()
     X = np.array([1, 0])
     Z = no_intercept([1, -1])
     res = br.fit(X, Z)
@@ -123,7 +122,7 @@ if __name__ == "__main__":
         assert np.abs(m - x) < 1e-6
 
     # Test regression with intercept (or bias)
-    br = RegressionPDF(BetaBernoulliDistribution())
+    br = BetaBernoulliDistribution().regressor()
     X = np.array([1, 0, 1, 1, 0])
     Z = add_intercept([1, 1, -1, -1, -1])
     res = br.fit(X, Z)

@@ -9,11 +9,12 @@ For the regression model, eta depends on the regression parameters, phi.
 In addition, we choose the shape parameter, alpha, to be independent of phi.
 Hence, the other shape parameter, beta, depends on both alpha and eta.
 """
+from typing import Optional, Tuple
 import numpy as np
 from numpy import ndarray
 from scipy.stats import beta as beta_dist
 from scipy.special import digamma, polygamma
-from core_dist import ScalarPDF, Value, Values, Scalars
+from core_dist import ScalarPDF, RegressionPDF, Value, Values, Scalars
 
 
 # Assume Jeffreys' prior:
@@ -86,6 +87,31 @@ class BetaDistribution(ScalarPDF):
         cov_pe = -beta * (cov_ab + k * v_beta)  # Cov[Y_psi, Y_eta]
         return np.array([[v_eta, cov_pe], [cov_pe, v_psi]])
 
+    def regressor(self, phi: Optional[ndarray] = None) -> RegressionPDF:
+        return BetaRegressionPDF(self, phi)
+
+
+###############################################################################
+
+
+# Reduce size of Newton-Raphson parameter update
+DEFAULT_STEP_SIZE = 0.1
+
+
+# Override the standard regressor in order to control parameter divergence
+# when fitting the distribution to covariate data.
+class BetaRegressionPDF(RegressionPDF):
+    def fit(
+        self,
+        X: Value,
+        Z: ndarray,
+        W: Optional[Value] = None,
+        max_iters: int = 100,
+        min_tol: float = 1e-6,
+        step_size: float = DEFAULT_STEP_SIZE,
+    ) -> Tuple[float, int, float]:
+        super().fit(X, Z, W, max_iters, min_tol, step_size)
+
 
 ###############################################################################
 
@@ -110,14 +136,13 @@ if __name__ == "__main__":
     assert np.abs(alpha - beta) < 1e-3
 
     # Test regression
-    from core_dist import RegressionPDF, no_intercept, add_intercept
+    from core_dist import no_intercept, add_intercept
 
     # Test regression without intercept
-    br = RegressionPDF(BetaDistribution())
+    br = BetaDistribution().regressor()
     Z = no_intercept([-1, +1])
     res = br.fit(X, Z)
     phi = br.regression_parameters()
     assert len(phi) == 1
     mu = br.mean(Z)
-    print(mu)
-    print(br._pdf.parameters())
+    assert all(np.abs(mu - X) < 1e-3)

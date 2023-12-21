@@ -95,10 +95,10 @@ if __name__ == "__main__":
         assert np.abs(bd.parameters()[0] - np.mean(X)) < 1e-6
 
     # Test regression
-    from core_dist import RegressionPDF, no_intercept, add_intercept
+    from core_dist import no_intercept, add_intercept
 
     # Test regression without intercept
-    br = RegressionPDF(BernoulliDistribution())
+    br = BernoulliDistribution().regressor()
     X = np.array([1, 0])
     Z = no_intercept([1, -1])
     res = br.fit(X, Z)
@@ -109,7 +109,7 @@ if __name__ == "__main__":
         assert np.abs(m - x) < 1e-6
 
     # Test regression with intercept (or bias)
-    br = RegressionPDF(BernoulliDistribution())
+    br = BernoulliDistribution().regressor()
     X = np.array([1, 0, 1, 1, 0])
     Z = add_intercept([1, 1, -1, -1, -1])
     res = br.fit(X, Z)

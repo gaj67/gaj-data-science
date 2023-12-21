@@ -79,7 +79,7 @@ def no_intercept(column, *columns) -> ndarray:
 # Base distribution class:
 
 
-class ScalarPDF(ABC):
+class BasePDF(ABC):
     """
     A probability distribution of a scalar variate, X.
     """
@@ -139,7 +139,7 @@ class ScalarPDF(ABC):
         """
         return self._size
 
-    def reset(self):
+    def reset_parameters(self):
         """
         Resets the distributional parameters to their default (scalar) values.
         """
@@ -285,6 +285,7 @@ class ScalarPDF(ABC):
         W: Optional[Value] = None,
         max_iters: int = 100,
         min_tol: float = 1e-6,
+        step_size: float = 1.0,
     ) -> Tuple[float, int, float]:
         """
         Re-estimates the PDF parameters from the given observation(s).
@@ -295,6 +296,8 @@ class ScalarPDF(ABC):
             - max_iters (float): The maximum number of iterations; defaults to 100.
             - min_tol (float): The minimum score tolerance to indicate convergence;
                 defaults to 1e-6.
+            - step_size (float): Scales the parameter update. Reduce this value
+                if necessary to avoid divergence. Defaults to 1.0.
         Returns:
             - score (float): The mean log-likelihood of the data.
             - num_iters (int): The number of iterations performed.
@@ -302,7 +305,7 @@ class ScalarPDF(ABC):
         """
         # Enforce a single distribution, i.e. scalar parameter values
         if len(self) > 1:
-            self.reset()
+            self.reset_parameters()
         # Allow for single or multiple observations
         if isinstance(X, ndarray):
             # Obtain a weight for each observation
@@ -329,7 +332,7 @@ class ScalarPDF(ABC):
             mu = np.array(self.link_means())
             vars = self.link_variances()
             delta = solve(vars, Y - mu)
-            params = np.array(self.link_parameters()) + delta
+            params = np.array(self.link_parameters()) + step_size * delta
             # Update distributional parameters
             self.set_parameters(*self.link_inversion(*params))
             # Obtain new score
@@ -351,7 +354,7 @@ class RegressionPDF(ABC):
     upon a regression model involving covariates, Z.
     """
 
-    def __init__(self, pdf: ScalarPDF, phi: Optional[ndarray] = None):
+    def __init__(self, pdf: BasePDF, phi: Optional[ndarray] = None):
         """
         Initialises the conditional distribution using an underlying
         marginal distribution.
@@ -366,15 +369,24 @@ class RegressionPDF(ABC):
         conditional distribution to observed data.
 
         Input:
-            - pdf (ScalarPDF): The underlying probability distribution.
+            - pdf (BasePDF): The underlying probability distribution.
             - phi (ndarray): The optional regression model parameters.
         """
         self._pdf = pdf
         self._reg_params = phi
         for param in self.independent_parameters():
             if isinstance(param, ndarray):
-                pdf.reset()
+                pdf.reset_parameters()
                 break
+
+    def distribution(self) -> BasePDF:
+        """
+        Obtains the underlying (unconditional) distribution.
+
+        Returns:
+            - pdf (BasePDF): The underlying distribution.
+        """
+        return self._pdf
 
     def independent_parameters(self) -> Scalars:
         """
@@ -406,6 +418,14 @@ class RegressionPDF(ABC):
         """
         self._reg_params = (1e-2 / num_params) * np.ones(num_params)
 
+    def reset_parameters(self):
+        """
+        Resets the distribution to its default parameter values, and also
+        removes the regression parameters (which will need to be refitted).
+        """
+        self._pdf.reset_parameters()
+        self._reg_params = None
+
     def log_prob(self, X: Value, Z: ndarray) -> Value:
         """
         Computes the conditional log-likelihood(s) of the given data.
@@ -416,7 +436,7 @@ class RegressionPDF(ABC):
         Returns:
             - log_prob (float or ndarray): The log-likelihood(s).
         """
-        eta = self._regress(Z, self.regression_parameters())
+        eta = self._regression_value(Z, self.regression_parameters())
         self._pdf.set_parameters(*self._pdf.link_inversion(eta))
         return self._pdf.log_prob(X)
 
@@ -429,11 +449,11 @@ class RegressionPDF(ABC):
         Returns:
             - mu (float or ndarray): The predicted mean(s).
         """
-        eta = self._regress(Z, self.regression_parameters())
+        eta = self._regression_value(Z, self.regression_parameters())
         self._pdf.set_parameters(*self._pdf.link_inversion(eta))
         return self._pdf.mean()
 
-    def _regress(self, Z: ndarray, phi: ndarray) -> Value:
+    def _regression_value(self, Z: ndarray, phi: ndarray) -> Value:
         """
         Evaluates the regression function at the covariate value(s).
 
@@ -446,7 +466,22 @@ class RegressionPDF(ABC):
         # Assume a linear model for convenience
         return Z @ phi
 
-    def _compute_score(self, X: Value, Z: ndarray, W: Value, *psi: Values) -> float:
+    def _regression_gradient(self, Z: ndarray, phi: ndarray) -> Value:
+        """
+        Evaluates the gradient of the regression function at the covariate value(s).
+
+        Input:
+            - Z (ndarray): The value(s) of the covariates.
+            - phi (ndarray): The regression model parameters.
+        Returns:
+            - g (ndarray): The gradient value(s).
+        """
+        # Assume a linear model for convenience
+        return Z
+
+    def _compute_score(
+        self, X: Value, Z: ndarray, W: Value, phi: ndarray, *psi: Values
+    ) -> float:
         """
         Updates the distributional parameters and computes the log-likelihood score.
 
@@ -454,11 +489,12 @@ class RegressionPDF(ABC):
             - X (float or ndarray): The value(s) of the response variate.
             - Z (ndarray): The value(s) of the explanatory covariates.
             - W (float or ndarray): The weight(s) of the covariates.
-            - psi (tuple of float or ndarray): The independent parameter values.
+            - phi (ndarray): The regression parameter values.
+            - psi (tuple of float or ndarray): The optional independent parameter values.
         Returns:
             - score (float): The score.
         """
-        eta = self._regress(Z, self._reg_params)
+        eta = self._regression_value(Z, phi)
         self._pdf.set_parameters(*self._pdf.link_inversion(eta, *psi))
         score = np.sum(W * self._pdf.log_prob(X)) / np.sum(W)
         return score
@@ -529,6 +565,7 @@ class RegressionPDF(ABC):
         W: Optional[Value] = None,
         max_iters: int = 100,
         min_tol: float = 1e-6,
+        step_size: float = 1.0,
     ) -> Tuple[float, int, float]:
         """
         Re-estimates the regression model parameters and the independent
@@ -538,9 +575,10 @@ class RegressionPDF(ABC):
             - X (float or ndarray): The value(s) of the response variate.
             - Z (ndarray): The value(s) of the explanatory covariates.
             - W (float or ndarray): The optional weight(s) of the covariates.
-            - max_iters (float): The maximum number of iterations; defaults to 100.
-            - min_tol (float): The minimum score tolerance to indicate convergence;
-                defaults to 1e-6.
+            - max_iters (float): The maximum number of iterations.
+            - min_tol (float): The minimum score tolerance to indicate convergence.
+            - step_size (float): Scales the parameter update. Reduce this value
+                if necessary to avoid divergence.
         Returns:
             - score (float): The mean log-likelihood of the data.
             - num_iters (int): The number of iterations performed.
@@ -573,25 +611,45 @@ class RegressionPDF(ABC):
             self._init_regression_parameters(num_params)
         elif len(self._reg_params) != num_params:
             raise ValueError("Incompatible regression parameters!")
+        phi = self.regression_parameters()
         # Obtain current score
-        score = self._compute_score(X, Z, W)
+        score = self._compute_score(X, Z, W, phi)
         tol = 0.0
         # Fit data
         num_iters = 0
         while num_iters < max_iters:
             num_iters += 1
-            d_phi, d_psi = self._compute_deltas(X, Z, W)
+            Z0 = self._regression_gradient(Z, phi)
+            d_phi, d_psi = self._compute_deltas(X, Z0, W)
             # Update regression parameter estimates
-            phi = self.regression_parameters()
-            phi += d_phi
+            phi += step_size * d_phi
             # Update independent parameters (if any)
             psi = self.independent_parameters()
             if len(psi) > 0:
-                psi = np.array(psi) + d_psi
+                psi = np.array(psi) + step_size * d_psi
             # Update distributional parameters and score
-            new_score = self._compute_score(X, Z, W, *psi)
+            new_score = self._compute_score(X, Z, W, phi, *psi)
             tol = new_score - score
             score = new_score
             if np.abs(tol) < min_tol:
                 break
         return score, num_iters, tol
+
+
+class ScalarPDF(BasePDF):
+    """
+    Enables the distribution to be wrapped into a conditional PDF.
+    """
+
+    def regressor(self, phi: Optional[ndarray] = None) -> RegressionPDF:
+        """
+        Wraps the distribution into a conditional PDF, which evaluates the
+        link parameter via a regression function of covariates.
+        Note that the regressor may modify the distributional parameters.
+
+        Input:
+            - phi (ndarray): The optional regression model parameters.
+        Returns:
+            - reg (RegressionPDF): The conditional PDF.
+        """
+        return RegressionPDF(self, phi)

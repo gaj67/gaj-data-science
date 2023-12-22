@@ -96,6 +96,17 @@ class GammaDistribution(ScalarPDF):
         min_tol: float = 1e-6,
         step_size: float = 0.01,
     ) -> Tuple[float, int, float]:
+        # Enforce a single distribution, i.e. scalar parameter values
+        if not self.is_scalar():
+            self.reset_parameters()
+        # Match moments to estimate better-than-default parameters
+        if self.is_default():
+            v = np.var(X)
+            if v > 0.01:
+                mu = np.mean(X)
+                beta = mu / v
+                alpha = beta * mu
+                self.set_parameters(alpha, beta)
         # Dynamically reduce gradient step-size if necessary
         n = int(np.log10(np.max(X)))
         _step_size = 0.1 ** (n + 1)

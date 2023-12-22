@@ -75,6 +75,24 @@ def no_intercept(column, *columns) -> ndarray:
     return np.stack((column,) + columns, axis=1)
 
 
+def is_scalar(*params: Values) -> bool:
+    """
+    Determines whether or not the given parameters all have valid, scalar
+    values.
+
+    Input:
+        - params (tuple of float or ndarray): The parameter values.
+    Returns:
+        - flag (bool): A value of true if scalar-valued, otherwise False.
+    """
+    for p in params:
+        if isinstance(p, ndarray):
+            return False  # Multi-valued
+        if np.isnan(p):
+            return False  # Divergent parameters
+    return True
+
+
 ###############################################################################
 # Base distribution class:
 
@@ -154,6 +172,33 @@ class BasePDF(ABC):
             - theta (tuple of float): The default parameter values.
         """
         raise NotImplementedError
+
+    def is_scalar(self) -> bool:
+        """
+        Determines whether or not the distribution has valid, scalar-valued
+        parameters.
+
+        Returns:
+            - flag (bool): A value of True if scalar-valued, otherwise False.
+        """
+        if len(self) > 1:
+            return False  # Multi-valued
+        return is_scalar(*self.parameters())
+
+    def is_default(self) -> bool:
+        """
+        Determines whether or not the distribution has default, scalar-valued
+        parameters.
+
+        Returns:
+            - flag (bool): A value of True if default-valued, otherwise False.
+        """
+        if len(self) > 1:
+            return False  # Multi-valued
+        for p, d in zip(self.parameters(), self.default_parameters()):
+            if p != d:
+                return False  # Not default
+        return True
 
     # ----------------------
     # Standard PDF methods:
@@ -304,7 +349,7 @@ class BasePDF(ABC):
             - tol (float): The final score tolerance.
         """
         # Enforce a single distribution, i.e. scalar parameter values
-        if len(self) > 1:
+        if not self.is_scalar():
             self.reset_parameters()
         # Allow for single or multiple observations
         if isinstance(X, ndarray):
@@ -357,27 +402,25 @@ class RegressionPDF(ABC):
     def __init__(self, pdf: BasePDF, phi: Optional[ndarray] = None):
         """
         Initialises the conditional distribution using an underlying
-        marginal distribution.
+        unconditional distribution.
 
-        The independent parameters are obtained from the marginal distribution.
-        Note that if these parameters are multi-valued, then the marginal
-        distribution will be reset with its default (scalar) parameter values.
+        The independent parameters are obtained from the underlying distribution.
+        If necessary, the distributional parameters may be reset to take their
+        default values, in order to ensure that the independent parameters
+        have valid, scalar values.
 
-        The regression model will override the value(s) of the link
-        parameter. Note that if the regression model parameters are not
-        supplied here, then they must be obtained by fitting the
-        conditional distribution to observed data.
+        The regression model will override the value(s) of the link parameter.
+        Note that if the regression model parameters are not supplied here,
+        then they must be obtained by fitting the conditional distribution to
+        observed data.
 
         Input:
             - pdf (BasePDF): The underlying probability distribution.
             - phi (ndarray): The optional regression model parameters.
         """
         self._pdf = pdf
+        self.reset_parameters()
         self._reg_params = phi
-        for param in self.independent_parameters():
-            if isinstance(param, ndarray):
-                pdf.reset_parameters()
-                break
 
     def distribution(self) -> BasePDF:
         """
@@ -388,14 +431,14 @@ class RegressionPDF(ABC):
         """
         return self._pdf
 
-    def independent_parameters(self) -> Scalars:
+    def independent_parameters(self) -> ndarray:
         """
         Provides the values of the independent distributional parameters.
 
         Returns:
-            - psi (tuple of float): The (possibly empty) parameter values.
+            - psi (ndarray): The (possibly empty) parameter values.
         """
-        return self._pdf.link_parameters()[1:]
+        return self._indep_params
 
     def regression_parameters(self) -> ndarray:
         """
@@ -418,12 +461,29 @@ class RegressionPDF(ABC):
         """
         self._reg_params = (1e-2 / num_params) * np.ones(num_params)
 
+    def is_scalar(self) -> bool:
+        """
+        Determines whether or not the conditional distribution has valid,
+        scalar-valued parameters.
+
+        Returns:
+            - flag (bool): A value of True if scalar-valued, otherwise False.
+        """
+        if not is_scalar(*self._indep_params):
+            return False
+        if self._reg_params is not None:
+            return is_scalar(self._reg_params)
+        return True
+
     def reset_parameters(self):
         """
-        Resets the distribution to its default parameter values, and also
-        removes the regression parameters (which will need to be refitted).
+        Resets the independent parameter values, which may involve resetting
+        the underlying distribution, if necessary.
+        Also removes the regression parameters, which will need to be refitted.
         """
-        self._pdf.reset_parameters()
+        if not is_scalar(*self._pdf.link_parameters()[1:]):
+            self._pdf.reset_parameters()
+        self._indep_params = np.array(self._pdf.link_parameters()[1:], dtype=float)
         self._reg_params = None
 
     def log_prob(self, X: Value, Z: ndarray) -> Value:
@@ -584,6 +644,9 @@ class RegressionPDF(ABC):
             - num_iters (int): The number of iterations performed.
             - tol (float): The final score tolerance.
         """
+        # Enforce a single distribution, i.e. scalar parameter values
+        if not self.is_scalar():
+            self.reset_parameters()
         # Allow for single or multiple observations
         if not isinstance(Z, ndarray):
             raise ValueError("Incompatible covariates!")
@@ -626,7 +689,7 @@ class RegressionPDF(ABC):
             # Update independent parameters (if any)
             psi = self.independent_parameters()
             if len(psi) > 0:
-                psi = np.array(psi) + step_size * d_psi
+                psi += step_size * d_psi
             # Update distributional parameters and score
             new_score = self._compute_score(X, Z, W, phi, *psi)
             tol = new_score - score

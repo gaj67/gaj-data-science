@@ -75,6 +75,19 @@ def no_intercept(column, *columns) -> ndarray:
     return np.stack((column,) + columns, axis=1)
 
 
+def _is_multi(X: Value) -> bool:
+    """
+    Determines whether the input is multi-valued or single-valued.
+
+    Input:
+        - X (float or array-like): The input.
+    Returns:
+        - flag (bool): A value of True if the input is multi-valued, otherwise
+            a value of False.
+    """
+    return hasattr(X, "__len__")
+
+
 def is_scalar(*params: Values) -> bool:
     """
     Determines whether or not the given parameters all have valid, scalar
@@ -86,7 +99,7 @@ def is_scalar(*params: Values) -> bool:
         - flag (bool): A value of true if scalar-valued, otherwise False.
     """
     for p in params:
-        if isinstance(p, ndarray):
+        if _is_multi(p):
             return False  # Multi-valued
         if np.isnan(p):
             return False  # Divergent parameters
@@ -352,6 +365,8 @@ class BasePDF(ABC):
         if not self.is_scalar():
             self.reset_parameters()
         # Allow for single or multiple observations
+        if _is_multi(X) and not isinstance(X, ndarray):
+            X = np.fromiter(X, float)
         if isinstance(X, ndarray):
             # Obtain a weight for each observation
             if W is None:
@@ -650,6 +665,8 @@ class RegressionPDF(ABC):
         # Allow for single or multiple observations
         if not isinstance(Z, ndarray):
             raise ValueError("Incompatible covariates!")
+        if _is_multi(X) and not isinstance(X, ndarray):
+            X = np.fromiter(X, float)
         if isinstance(X, ndarray):
             # Multiple observations
             if len(X.shape) != 1:

@@ -8,8 +8,8 @@ parameter is identical to the natural parameter.
 
 For the regression model, eta depends on the regression parameters, phi.
 """
-import numpy as np
 from numpy import ndarray
+import numpy as np
 from core_dist import ScalarPDF, Value, Values, Scalars
 from stats_tools import logistic, logit
 

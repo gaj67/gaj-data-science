@@ -10,8 +10,8 @@ In addition, we choose the shape parameter, alpha, to be independent of phi.
 Hence, the other shape parameter, beta, depends on both alpha and eta.
 """
 from typing import Optional, Tuple
-import numpy as np
 from numpy import ndarray
+import numpy as np
 from scipy.stats import beta as beta_dist
 from scipy.special import digamma, polygamma
 from core_dist import ScalarPDF, RegressionPDF, Value, Values, Scalars
@@ -113,6 +113,7 @@ class BetaDistribution(ScalarPDF):
                 self.set_parameters(alpha, beta)
         return super().fit(X, W, max_iters, min_tol, step_size)
 
+
 ###############################################################################
 
 
@@ -165,8 +166,8 @@ class BetaDistribution2(BetaDistribution):
         if len(psi) > 0:
             psi = psi[0]
         else:
-             alpha, beta = self.parameters()
-             psi = alpha + beta
+            alpha, beta = self.parameters()
+            psi = alpha + beta
         alpha = (psi + eta) / 2
         beta = (psi - eta) / 2
         return (alpha, beta)
@@ -197,6 +198,7 @@ class BetaDistribution2(BetaDistribution):
         cov_pe = (v_alpha - v_beta) / 4  # Cov[Y_psi, Y_eta]
         return np.array([[v_eta, cov_pe], [cov_pe, v_psi]])
 
+
 ###############################################################################
 
 
@@ -226,7 +228,7 @@ if __name__ == "__main__":
     # Test regression with intercept
     br = BetaDistribution().regressor()
     Z = add_intercept([-1, +1])
-    log_p, num_iters, tol  = br.fit(X, Z)
+    log_p, num_iters, tol = br.fit(X, Z)
     assert tol < 1e-6
     phi = br.regression_parameters()
     assert len(phi) == 2
@@ -236,7 +238,7 @@ if __name__ == "__main__":
     # Test alternative implementation
     br = BetaDistribution2().regressor()
     Z = add_intercept([-1, +1])
-    log_p, num_iters, tol  = br.fit(X, Z)
+    log_p, num_iters, tol = br.fit(X, Z)
     assert tol < 1e-6
     phi = br.regression_parameters()
     assert len(phi) == 2

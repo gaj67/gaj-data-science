@@ -1,86 +1,87 @@
 """
-This module implements the Beta distribution.
+This module implements the Negative Binomial distribution.
 
-The natural parameters are the distributional parameters, alpha and beta.
-We choose the logit function for the link function, which means that
+The Polya form of the distribution may be parameterised by alpha and p, 
+where alpha sepcifies the (possibly real-valued) 'number' of required 
+events (e.g. successes), and p specifies the probability of such an event,
+sampled at each trial over a sequence of independent Bernoulli trials.
+
+When derived from a Poisson distribution with a Gamma(alpha, beta) prior,
+we find that p = beta / (beta + 1) and beta = p / (1 - p).
+
+The natural parameters are alpha and eta = log(1 - p).
+
+
+We choose the XXX function for the link function, which means that
 the link parameter, eta, is not one of the natural parameters.
 
 For the regression model, eta depends on the regression parameters, phi.
 In addition, we choose the shape parameter, alpha, to be independent of phi.
-Hence, the other shape parameter, beta, depends on both alpha and eta.
+Hence, the other parameter, p (or beta), depends on both alpha and eta.
 """
 from typing import Optional, Tuple
 from numpy import ndarray
 import numpy as np
-from scipy.stats import beta as beta_dist
-from scipy.special import loggamma, digamma, polygamma
-from core_dist import ScalarPDF, Regressor, Fitting, Value, Values, Scalars
-from stats_tools import weighted_mean, weighted_var, guard_prob
+from scipy.special import gamma, digamma, polygamma
+from core_dist import ScalarPDF, RegressionPDF, Value, Values, Scalars
 
 
-# Assume uniform prior:
+# Assume Exponential prior as a specialisation of Gamma(alpha, beta):
 DEFAULT_ALPHA = 1
-DEFAULT_BETA = 1
+DEFAULT_PROB = 0.5
 
 
-@Regressor(max_iters=100, step_size=0.5)
-# @Fitting(max_iters=1000, step_size=0.1)
-class BetaDistribution(ScalarPDF):
-    def __init__(self, alpha: Value = DEFAULT_ALPHA, beta: Value = DEFAULT_BETA):
+class NegBinomialDistribution(ScalarPDF):
+    def __init__(self, alpha: Value = DEFAULT_ALPHA, p: Value = DEFAULT_PROB):
         """
         Initialises the Beta distribution(s).
 
         Input:
-            - alpha (float or ndarray): The first shape parameter value(s).
-            - beta (float or ndarray): The second shape parameter value(s).
+            - alpha (float or ndarray): The required number of stopping events.
+            - p (float or ndarray): The probability of a stopping event.
         """
-        super().__init__(alpha, beta)
+        super().__init__(alpha, p)
 
     def default_parameters(self) -> Scalars:
-        return (DEFAULT_ALPHA, DEFAULT_BETA)
+        return (DEFAULT_ALPHA, DEFAULT_PROB)
 
     def mean(self) -> Value:
-        alpha, beta = self.parameters()
-        return alpha / (alpha + beta)
+        alpha, p = self.parameters()
+        return alpha * (1 - p) / p
 
     def variance(self) -> Value:
-        alpha, beta = self.parameters()
-        nu = alpha + beta
-        mu = alpha / nu
-        return mu * (1 - mu) / (nu + 1)
+        alpha, p = self.parameters()
+        return alpha * (1 - p) / p**2
 
     def log_prob(self, X: Value) -> Value:
-        alpha, beta = self.parameters()
-        v1 = beta_dist.logpdf(X, alpha, beta)
-        print("DEBUG: v1 =", v1)
-        v2 = (
-            (alpha - 1) * np.log(X)
-            + (beta - 1) * np.log(1 - X)
-            + loggamma(alpha + beta)
-            - loggamma(alpha)
-            - loggamma(beta)
+        alpha, p = self.parameters()
+        return (
+            np.log(gamma(alpha + X))
+            - np.log(gamma(alpha))
+            + X * np.log(1 - p)
+            - np.log(gamma(X + 1))
+            + alpha * np.log(p)
         )
-        print("DEBUG: v2 =", v2)
-        return v2
 
-    def internal_parameters(self) -> Values:
+    def link_parameters(self) -> Values:
         alpha, beta = self.parameters()
+        XXXXX
         eta = np.log(alpha / beta)
         return (eta, alpha)
 
-    def invert_parameters(self, eta: Value, psi: Value) -> Values:
-        alpha = psi
+    def link_inversion(self, eta: Value, *psi: Values) -> Values:
+        alpha = psi[0] if len(psi) > 0 else self.parameters()[0]
         beta = alpha * np.exp(-eta)
         return (alpha, beta)
 
-    def internal_variates(self, X: Value) -> Values:
+    def link_variates(self, X: Value) -> Values:
         alpha, beta = self.parameters()
         Y_alpha, Y_beta = np.log(X), np.log(1 - X)
         Y_eta = -beta * Y_beta
         Y_psi = Y_alpha + beta / alpha * Y_beta
         return (Y_eta, Y_psi)
 
-    def internal_means(self) -> Values:
+    def link_means(self) -> Values:
         alpha, beta = self.parameters()
         d_nu = digamma(alpha + beta)
         mu_alpha = digamma(alpha) - d_nu  # E[Y_alpha]
@@ -89,7 +90,7 @@ class BetaDistribution(ScalarPDF):
         mu_psi = mu_alpha + beta / alpha * mu_beta  # E[Y_psi]
         return (mu_eta, mu_psi)
 
-    def internal_variances(self) -> ndarray:
+    def link_variances(self) -> ndarray:
         alpha, beta = self.parameters()
         cov_ab = -polygamma(1, alpha + beta)  # Cov[Y_alpha, Y_beta]
         v_alpha = polygamma(1, alpha) + cov_ab  # Var[Y_alpha]
@@ -100,17 +101,49 @@ class BetaDistribution(ScalarPDF):
         cov_pe = -beta * (cov_ab + k * v_beta)  # Cov[Y_psi, Y_eta]
         return np.array([[v_eta, cov_pe], [cov_pe, v_psi]])
 
-    def initialise_parameters(self, X: Value, W: Value, **kwargs: dict):
-        mu = guard_prob(weighted_mean(W, X))
-        sigma_sq = weighted_var(W, X)
-        if sigma_sq > 0.01:
-            nu = mu * (1 - mu) / sigma_sq
-            alpha = mu * nu
-            beta = nu - alpha
-        else:
-            beta = DEFAULT_BETA
-            alpha = beta * mu / (1 - mu)
-        self.set_parameters(alpha, beta)
+    def regressor(self, phi: Optional[ndarray] = None) -> RegressionPDF:
+        return BetaRegressionPDF(self, phi)
+
+    # Override fit() to control divergence
+    def fit(
+        self,
+        X: Value,
+        W: Optional[Value] = None,
+        max_iters: int = 1000,
+        min_tol: float = 1e-6,
+        step_size: float = 0.1,
+    ) -> Tuple[float, int, float]:
+        # Enforce a single distribution, i.e. scalar parameter values
+        if not self.is_scalar():
+            self.reset_parameters()
+        # Match moments to estimate better-than-default parameters
+        if self.is_default():
+            v = np.var(X)
+            if v > 0.01:
+                mu = np.mean(X)
+                nu = mu * (1 - mu) / v
+                alpha = mu * nu
+                beta = nu - alpha
+                self.set_parameters(alpha, beta)
+        return super().fit(X, W, max_iters, min_tol, step_size)
+
+
+###############################################################################
+
+
+# Override the standard regressor in order to control parameter divergence
+# when fitting the distribution to covariate data.
+class BetaRegressionPDF(RegressionPDF):
+    def fit(
+        self,
+        X: Value,
+        Z: ndarray,
+        W: Optional[Value] = None,
+        max_iters: int = 10000,
+        min_tol: float = 1e-6,
+        step_size: float = 0.01,
+    ) -> Tuple[float, int, float]:
+        return super().fit(X, Z, W, max_iters, min_tol, step_size)
 
 
 ###############################################################################
@@ -137,25 +170,30 @@ class BetaDistribution2(BetaDistribution):
             assert beta > 0
         super().set_parameters(alpha, beta)
 
-    def internal_parameters(self) -> Values:
+    def link_parameters(self) -> Values:
         alpha, beta = self.parameters()
         eta = alpha - beta
         psi = alpha + beta
         return (eta, psi)
 
-    def invert_parameters(self, eta: Value, psi: Value) -> Values:
+    def link_inversion(self, eta: Value, *psi: Values) -> Values:
+        if len(psi) > 0:
+            psi = psi[0]
+        else:
+            alpha, beta = self.parameters()
+            psi = alpha + beta
         alpha = (psi + eta) / 2
         beta = (psi - eta) / 2
         return (alpha, beta)
 
-    def internal_variates(self, X: Value) -> Values:
+    def link_variates(self, X: Value) -> Values:
         alpha, beta = self.parameters()
         Y_alpha, Y_beta = np.log(X), np.log(1 - X)
         Y_eta = (Y_alpha - Y_beta) / 2
         Y_psi = (Y_alpha + Y_beta) / 2
         return (Y_eta, Y_psi)
 
-    def internal_means(self) -> Values:
+    def link_means(self) -> Values:
         alpha, beta = self.parameters()
         d_nu = digamma(alpha + beta)
         mu_alpha = digamma(alpha) - d_nu  # E[Y_alpha]
@@ -164,7 +202,7 @@ class BetaDistribution2(BetaDistribution):
         mu_psi = (mu_alpha + mu_beta) / 2  # E[Y_psi]
         return (mu_eta, mu_psi)
 
-    def internal_variances(self) -> ndarray:
+    def link_variances(self) -> ndarray:
         alpha, beta = self.parameters()
         cov_ab = -polygamma(1, alpha + beta)  # Cov[Y_alpha, Y_beta]
         v_alpha = polygamma(1, alpha) + cov_ab  # Var[Y_alpha]
@@ -185,10 +223,9 @@ if __name__ == "__main__":
     mu = bd.mean()
     assert mu == DEFAULT_ALPHA / (DEFAULT_ALPHA + DEFAULT_BETA)
     assert bd.variance() == mu * (1 - mu) / (1 + DEFAULT_ALPHA + DEFAULT_BETA)
-    assert len(bd.internal_parameters()) == 2
-    assert bd.internal_parameters()[0] == np.log(DEFAULT_ALPHA / DEFAULT_BETA)  # eta
-    assert bd.internal_parameters()[1] == bd.parameters()[0]  # psi = alpha
-    print("Passed default parameter tests!")
+    assert len(bd.link_parameters()) == 2
+    assert bd.link_parameters()[0] == np.log(DEFAULT_ALPHA / DEFAULT_BETA)  # eta
+    assert bd.link_parameters()[1] == bd.parameters()[0]  # psi = alpha
 
     # Test fitting multiple observations
     X = np.array([0.25, 0.75])
@@ -198,13 +235,12 @@ if __name__ == "__main__":
     assert np.abs(mu - 0.5) < 1e-3
     alpha, beta = bd.parameters()
     assert np.abs(alpha - beta) < 1e-3
-    print("Passed simple fitting test!")
 
     # Test regression
     from core_dist import no_intercept, add_intercept
 
     # Test regression with intercept
-    br = BetaDistribution().regressor([0, 0])
+    br = BetaDistribution().regressor()
     Z = add_intercept([-1, +1])
     log_p, num_iters, tol = br.fit(X, Z)
     assert tol < 1e-6

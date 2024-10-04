@@ -8,15 +8,17 @@ parameter is identical to the natural parameter.
 
 For the regression model, eta depends on the regression parameters, phi.
 """
+from typing import Optional, Tuple
 from numpy import ndarray
 import numpy as np
-from core_dist import ScalarPDF, Value, Values, Scalars
-from stats_tools import logistic, logit
+from core_dist import ScalarPDF, Regressor, Value, Values, Scalars
+from stats_tools import logistic, logit, guard_prob, weighted_mean
 
 
 DEFAULT_THETA = 0.5
 
 
+@Regressor
 class BernoulliDistribution(ScalarPDF):
     def __init__(self, theta: Value = DEFAULT_THETA):
         """
@@ -39,26 +41,30 @@ class BernoulliDistribution(ScalarPDF):
         return theta * (1 - theta)
 
     def log_prob(self, X: Value) -> Value:
-        theta = self.parameters()[0]
+        theta = guard_prob(self.parameters()[0])
         return X * np.log(theta) + (1 - X) * np.log(1 - theta)
 
-    def link_parameters(self) -> Values:
-        theta = self.parameters()[0]
+    def internal_parameters(self) -> Values:
+        theta = guard_prob(self.parameters()[0])
         eta = logit(theta)
         return (eta,)
 
-    def link_inversion(self, eta: Value, *psi: Values) -> Values:
+    def invert_parameters(self, eta: Value) -> Values:
         theta = logistic(eta)
         return (theta,)
 
-    def link_variates(self, X: Value) -> Values:
+    def internal_variates(self, X: Value) -> Values:
         return (X,)
 
-    def link_means(self) -> Values:
+    def internal_means(self) -> Values:
         return (self.mean(),)
 
-    def link_variances(self) -> ndarray:
+    def internal_variances(self) -> ndarray:
         return np.array([[self.variance()]])
+
+    def initialise_parameters(self, X: Value, W: Value, **kwargs: dict):
+        theta = weighted_mean(W, X)
+        self.set_parameters(theta)
 
 
 ###############################################################################
@@ -69,10 +75,11 @@ if __name__ == "__main__":
     assert bd.parameters() == (DEFAULT_THETA,)
     assert bd.mean() == DEFAULT_THETA
     assert bd.variance() == DEFAULT_THETA * (1 - DEFAULT_THETA)
-    assert len(bd.link_parameters()) == 1
-    assert bd.link_parameters()[0] == 0.0
+    assert len(bd.internal_parameters()) == 1
+    assert bd.internal_parameters()[0] == 0.0
     X = np.array([0, 1, 1, 0])
-    assert all(bd.link_variates(X)[0] == X)
+    assert all(bd.internal_variates(X)[0] == X)
+    print("Passed default parameter tests!")
 
     # Test specified parameter
     theta = 0.123456
@@ -80,19 +87,22 @@ if __name__ == "__main__":
     assert bd.parameters() == (theta,)
     assert bd.mean() == theta
     assert bd.variance() == theta * (1 - theta)
+    print("Passed specified parameter tests!")
 
     # Test fitting 1 observation - be careful with 0 or 1!
-    for x in [1e-3, 1, 0.5, 0.1]:
+    for x in [1e-3, 0.9, 0.5, 0.1, 1, 0]:
         bd = BernoulliDistribution()
         res = bd.fit(x)
         assert np.abs(bd.parameters()[0] - x) < 1e-6
+    print("Passed fitting 1 observation tests!")
 
     # Test fitting multiple observations
-    for n in range(1, 11):
+    for n in range(2, 11):
         X = np.random.randint(0, 2, n)
         bd = BernoulliDistribution()
         res = bd.fit(X)
         assert np.abs(bd.parameters()[0] - np.mean(X)) < 1e-6
+    print("Passed fitting multiple observations tests!")
 
     # Test regression
     from core_dist import no_intercept, add_intercept
@@ -118,3 +128,4 @@ if __name__ == "__main__":
     assert np.abs(mu - 0.5) < 1e-6
     mu = br.mean(add_intercept([-1]))
     assert np.abs(mu - 2 / 3) < 1e-6
+    print("Passed regression fitting tests!")

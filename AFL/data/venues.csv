@@ -16,6 +16,7 @@ venue,from,to,latitude,longitude,ground,suburb,state,aliases
 "M.C.G.",1897,,-37.8200,144.9832,"Melbourne Cricket Ground","Melbourne","VIC",
 "Moorabbin Oval",1965,1992,-37.9375,145.0439,"Moorabbin Oval","Moorabbin","VIC","RSEA Safety Park;RSEA Park"
 "North Hobart",1952,1992,-42.867778,147.315833,"North Hobart Oval","North Hobart","TAS",
+"Norwood Oval",2024,2024,-34.918496326 138.6249975,"Norwood Oval","Norwood","SA","Coopers Stadium"
 "Perth Stadium",2018,,-31.951111,115.889028,"Perth Stadium","Burswood","WA","Optus Stadium"
 "Princes Park",1897,2005,-37.7839,144.9617,"Princes Park","Carlton","VIC","Ikon Park;Visy Park;MC Labour Park;Optus Oval;Carlton Recreation Ground"
 "Riverway Stadium",2019,2019,-19.317222,146.731667,"Riverway Stadium","Townsville","QLD","Tony Ireland Stadium;Pioneer Park"
@@ -23,6 +24,7 @@ venue,from,to,latitude,longitude,ground,suburb,state,aliases
 "Showground",2012,,-33.843056,151.067778,"Sydney Showground Stadium","Sydney Olympic Park","NSW","Giants Stadium;Spotless Stadium;Škoda Stadium"
 "Stad. Aust.",2002,2016,-33.847222,151.063333,"Stadium Australia","Sydney Olympic Park","NSW","ANZ Stadium;Telstra Stadium"
 "Subiaco",1987,2017,-31.9444,115.83,"Subiaco Oval","Subiaco","WA","Mueller Park;Patersons Stadium;Domain Stadium"
+"Summit Sports Park",2024,2024,-35.077990,138.893400,"Summit Sport and Recreation Park","Mount Barker","SA",
 "Traeger Park",2014,,-23.709039,133.875083,"Traeger Park","Alice Springs","NT","TIO Traeger Park"
 "Victoria Park",1897,1999,-37.798255,144.996443,"Victoria Park","Abbotsford","VIC",
 "W.A.C.A.",1987,2000,-31.9600,115.8797,"WACA Ground","East Perth","WA",

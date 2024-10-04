@@ -33,6 +33,41 @@ def logit(p: ArrayLike) -> ArrayLike:
     return np.log(p / (1.0 - p))
 
 
+def guard_prob(p: ArrayLike) -> ArrayLike:
+    """
+    Guard against extreme probability values.
+
+    Input:
+        - p (float or ndarray): The value(s) to be checked.
+    Returns:
+        - q (float or ndarray): The adjusted value(s).
+    """
+    if isinstance(p, np.ndarray):
+        q = p.copy()
+        q[q <= 0] = 1e-30
+        q[q >= 1] = 1 - 1e-10
+    else:
+        q = 1e-30 if p <= 0.0 else 1 - 1e-10 if p >= 1.0 else p
+    return q
+
+
+def guard_pos(p: ArrayLike) -> ArrayLike:
+    """
+    Guard against values going non-positive.
+
+    Input:
+        - p (float or ndarray): The value(s) to be checked.
+    Returns:
+        - q (float or ndarray): The adjusted value(s).
+    """
+    if isinstance(p, np.ndarray):
+        q = p.copy()
+        q[q <= 0] = 1e-30
+    else:
+        q = 1e-30 if p <= 0.0 else p
+    return q
+
+
 def weighted_mean(
     weights: ArrayLike, x: ArrayLike, y: Optional[ArrayLike] = None
 ) -> float:

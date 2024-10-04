@@ -235,5 +235,8 @@ def extract_match_data(matches, use_old_names=True):
                 )
                 edge_info = env_info + for_info + against_info + [result]
                 df_edges.loc[len(df_edges), :] = edge_info
-    assert num_accepted == num_rejected
+    if num_accepted != num_rejected:
+        raise ValueError(
+            f"Edge mismatch: accepted={num_accepted} and rejected={num_rejected}"
+        )
     return df_edges

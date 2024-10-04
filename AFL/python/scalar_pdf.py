@@ -51,67 +51,66 @@ Values2D = Tuple[Values]
 # Useful functions:
 
 
-def is_multi(X: Value) -> bool:
+def is_multi(value: Value) -> bool:
     """
     Determines whether the input is multi-valued or single-valued.
 
     Input:
-        - X (float or array-like): The input.
+        - value (float or array-like): The input.
     Returns:
         - flag (bool): A value of True if the input is multi-valued, otherwise
             a value of False.
     """
-    return hasattr(X, "__len__") or hasattr(X, "__iter__")
+    return hasattr(value, "__len__") or hasattr(value, "__iter__")
 
 
-def is_scalar(*params: Values) -> bool:
+def is_scalar(*values: Values) -> bool:
     """
-    Determines whether or not the given parameters all have valid, scalar
-    values.
+    Determines whether or not the given values are all valid and scalar.
 
     Input:
         - params (tuple of float or ndarray): The parameter values.
     Returns:
         - flag (bool): A value of True if scalar-valued, otherwise False.
     """
-    for p in params:
-        if is_multi(p):
+    for value in values:
+        if is_multi(value):
             return False  # Multi-valued
-        if np.isnan(p):
+        if np.isnan(value):
             return False  # Divergent parameters
     return True
 
 
-def check_data(X: Value, W: Optional[Value] = None) -> Tuple[Value, Value]:
+def check_data(data: Value, weights: Optional[Value] = None) -> Tuple[Value, Value]:
     """
     Ensures that the type of variate observation(s) is float or ndarray.
     Also ensures a consistent type for the observation weight(s), if given.
 
     Input:
-        - X (float or array-like): The variate value(s).
-        - W (float or array-like, optional): The weight value(s).
+        - data (float or array-like): The variate value(s).
+        - weights (float or array-like, optional): The weight value(s).
 
     Returns:
-        - X' (float or ndarray): The checked value(s).
-        - W' (float or ndarray): The check weight(s).
+        - data' (float or ndarray): The checked value(s).
+        - weights' (float or ndarray): The check weight(s).
     """
-    if not isinstance(X, ndarray) and is_multi(X):
-        X = np.fromiter(X, float)
-    if W is not None and not isinstance(W, ndarray) and is_multi(W):
-        W = np.fromiter(W, float)
+    if not isinstance(data, ndarray) and is_multi(data):
+        data = np.fromiter(data, float)
+    if weights is not None and not isinstance(weights, ndarray) and is_multi(weights):
+        weights = np.fromiter(weights, float)
 
-    if isinstance(X, ndarray):
-        if W is None:
-            W = np.ones(len(X))
-        elif not isinstance(W, ndarray) or len(W) != len(X):
+    if isinstance(data, ndarray):
+        if weights is None:
+            weights = np.ones(len(data))
+        elif not isinstance(weights, ndarray) or len(weights) != len(data):
             raise ValueError("Incompatible weights!")
     else:
-        if W is None:
-            W = 1.0
-        elif isinstance(W, ndarray):
+        if weights is None:
+            weights = 1.0
+        elif isinstance(weights, ndarray):
             raise ValueError("Incompatible weights!")
 
-    return X, W
+    return data, weights
 
 
 ###############################################################################
@@ -170,7 +169,7 @@ class ScalarPDF(ABC):
                 _len = len(param)
                 if _len <= 0:
                     raise ValueError(f"Expected parameter {i} to be non-empty")
-                elif _len == 1:
+                if _len == 1:
                     # Take scalar value
                     param = param[0]
                 elif size == 1:
@@ -253,12 +252,12 @@ class ScalarPDF(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def log_prob(self, X: Value) -> Value:
+    def log_prob(self, data: Value) -> Value:
         """
         Computes the log-likelihood(s) of the given data.
 
         Input:
-            - X (float or ndarray): The value(s) of the response variate.
+            - data (float or ndarray): The value(s) of the response variate.
 
         Returns:
             - log_prob (float or ndarray): The log-likelihood(s).
@@ -285,7 +284,7 @@ class ScalarPDF(ABC):
 
     @abstractmethod
     def _estimate_parameters(
-        self, X: Value, W: Optional[Value] = None, **kwargs: dict
+        self, data: Value, weights: Optional[Value] = None, **kwargs: dict
     ) -> Values:
         """
         Estimates the values of the distributional parameters from
@@ -295,8 +294,8 @@ class ScalarPDF(ABC):
         usually computed via the method of moments.
 
         Inputs:
-            - X (float or ndarray): The value(s) of the response variate.
-            - W (float or ndarray, optional): The weight(s) of the observation(s).
+            - data (float or ndarray): The value(s) of the response variate.
+            - weights (float or ndarray, optional): The weight(s) of the observation(s).
             - kwargs (dict, optional): Additional information, e.g. prior values.
 
         Returns:
@@ -305,7 +304,7 @@ class ScalarPDF(ABC):
         raise NotImplementedError
 
     def _optimise_parameters(
-        self, X: Value, W: Optional[Value] = None, **controls: dict
+        self, data: Value, weights: Optional[Value] = None, **controls: dict
     ) -> Tuple[float, int, float]:
         """
         Updates the distributional parameters by maximising the
@@ -314,8 +313,8 @@ class ScalarPDF(ABC):
         It is assumed that suitable initial parameter values have already been set.
 
         Inputs:
-            - X (float or ndarray): The value(s) of the response variate.
-            - W (float or ndarray, optional): The weight(s) of the observation(s).
+            - data (float or ndarray): The value(s) of the response variate.
+            - weights (float or ndarray, optional): The weight(s) of the observation(s).
             - controls (dict): The user-specified controls. See FITTING_DEFAULTS.
 
         Returns:
@@ -324,15 +323,15 @@ class ScalarPDF(ABC):
             - score_tol (float): The final score tolerance.
         """
         # Allow for single or multiple observations
-        X, W = check_data(X, W)
+        data, weights = check_data(data, weights)
 
         # Create data averaging and scoring functions
-        if isinstance(X, ndarray):
-            tot_W = np.sum(W)
+        if isinstance(data, ndarray):
+            tot_weight = np.sum(weights)
             # Specify weighted mean function
-            mean_fn = lambda t: (W @ np.column_stack(t)) / tot_W
+            mean_fn = lambda t: (weights @ np.column_stack(t)) / tot_weight
             # Specify score function
-            score_fn = lambda x: (W @ self.log_prob(x)) / tot_W
+            score_fn = lambda x: (weights @ self.log_prob(x)) / tot_weight
         else:
             # No weights or averaging required
             mean_fn = np.array
@@ -349,28 +348,33 @@ class ScalarPDF(ABC):
         step_size = _controls["step_size"]
 
         # Estimate the optimal parameter values.
-        score = score_fn(X)
+        score = score_fn(data)
         psi = np.array(self._internal_parameters(*self.parameters()), dtype=float)
 
         while num_iters < max_iters:
             # Check if gradient is close to zero
-            g = mean_fn(self._internal_gradient(X))
+            g = mean_fn(self._internal_gradient(data))
             if np.min(np.abs(g)) < min_grad_tol:
                 break
 
             # Apply Newton-Raphson update
             num_iters += 1
-            nH = np.array([mean_fn(r) for r in self._internal_negHessian(X)])
-            d_psi = solve(nH, g)
+            n_hess = np.array([mean_fn(r) for r in self._internal_neg_hessian(data)])
+            d_psi = solve(n_hess, g)
             psi += step_size * d_psi
             self.set_parameters(self._distributional_parameters(*psi))
 
             # Obtain new score
-            new_score = score_fn(X)
+            new_score = score_fn(data)
             score_tol = new_score - score
             score = new_score
             print(
-                "DEBUG: num_iters =", num_iters, "tol =", tol, "\n", self.parameters()
+                "DEBUG: num_iters =",
+                num_iters,
+                "tol =",
+                score_tol,
+                "\n",
+                self.parameters(),
             )
             if np.abs(score_tol) < min_score_tol:
                 break
@@ -378,7 +382,11 @@ class ScalarPDF(ABC):
         return score, num_iters, score_tol
 
     def fit(
-        self, X: Value, W: Optional[Value] = None, init: bool = True, **controls: dict
+        self,
+        data: Value,
+        weights: Optional[Value] = None,
+        init: bool = True,
+        **controls: dict,
     ) -> Tuple[float, int, float]:
         """
         Estimates the distributional parameters from the given observation(s),
@@ -390,8 +398,8 @@ class ScalarPDF(ABC):
         Additionally, if specified, initial parameter values will be estimated.
 
         Inputs:
-            - X (float or ndarray): The value(s) of the response variate.
-            - W (float or ndarray, optional): The weight(s) of the observation(s).
+            - data (float or ndarray): The value(s) of the response variate.
+            - weights (float or ndarray, optional): The weight(s) of the observation(s).
             - init (bool, optional): Indicates whether or not to (re)initialise the
                 parameter estimates; defaults to True. Set to False if the
                 previous fit did not achieve convergence.
@@ -403,24 +411,24 @@ class ScalarPDF(ABC):
             - tol (float): The final score tolerance.
         """
         # Allow for single or multiple observations
-        X, W = check_data(X, W)
+        data, weights = check_data(data, weights)
 
         # Enforce a single distribution, i.e. scalar parameter values.
         if not self.is_scalar():
             self.reset_parameters()
         if init:
-            self.set_parameters(*self._estimate_parameters(X, W, **controls))
-        return self._optimise_parameters(X, W, **controls)
+            self.set_parameters(*self._estimate_parameters(data, weights, **controls))
+        return self._optimise_parameters(data, weights, **controls)
 
     @abstractmethod
-    def _internal_gradient(self, X: Value) -> Values:
+    def _internal_gradient(self, data: Value) -> Values:
         """
         Computes the gradient of the log-likelihood function
         with respect to the internal parameterisation, evaluated
         at the observed value(s).
 
         Input:
-            - X (float or ndarray): The value(s) of the response variate.
+            - data (float or ndarray): The value(s) of the response variate.
 
         Returns:
             - grad (tuple of float or ndarray): The parameter gradients.
@@ -428,7 +436,7 @@ class ScalarPDF(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _internal_negHessian(self, X: Value) -> Values2D:
+    def _internal_neg_hessian(self, data: Value) -> Values2D:
         """
         Computes the negative of the Hessian matrix of second derivatives
         of the log-likelihood function with respect to the internal
@@ -440,7 +448,7 @@ class ScalarPDF(ABC):
         updates still converge.
 
         Input:
-            - X (float or ndarray): The value(s) of the response variate.
+            - data (float or ndarray): The value(s) of the response variate.
 
         Returns:
             - Sigma (matrix of float or ndarray): The second derivatives.
@@ -473,13 +481,13 @@ class ScalarPDF(ABC):
 
 
 ###############################################################################
-# Class decorator:
+# More helper methods:
 
 
-def FittingControls(**controls: dict) -> Callable[[Type[ScalarPDF]], Type[ScalarPDF]]:
+def fit_defaults(**controls: dict) -> Callable[[Type[ScalarPDF]], Type[ScalarPDF]]:
     """
     Modifies the default values of the convergence controls for
-    the parameter estimation algorithm.
+    the fit() parameter estimation algorithm.
 
     Input:
         - controls (dict): The overriden controls and their default values.
@@ -493,3 +501,23 @@ def FittingControls(**controls: dict) -> Callable[[Type[ScalarPDF]], Type[Scalar
         return klass
 
     return decorator
+
+
+def check_transformations(pdf: ScalarPDF) -> bool:
+    """
+    Checks whether or not the dual transformations between
+    distributional parameters and internal parameters are
+    consistent.
+
+    Input:
+        - pdf (ScalarPDF): A PDF instance.
+
+    Returns:
+        - flag (bool): A value of True if the transformations
+            are consistent, else False.
+    """
+    theta = pdf.parameters()
+    psi = pdf._internal_parameters(*theta)
+    theta2 = pdf._distributional_parameters(*psi)
+    psi2 = pdf._internal_parameters(*theta2)
+    return theta2 == theta and psi2 == psi

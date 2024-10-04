@@ -4,12 +4,18 @@ This module implements the Bernoulli distribution.
 The distributional parameter, theta, is also the mean, mu.
 """
 
-from typing import Optional, Tuple
-from numpy import ndarray
-from scalar_pdf import Value, Values, Values2D
+from typing import Optional
 
 import numpy as np
-from scalar_pdf import ScalarPDF, check_data
+
+from scalar_pdf import (
+    ScalarPDF,
+    check_data,
+    check_transformations,
+    Value,
+    Values,
+    Values2D,
+)
 from stats_tools import logistic, logit, guard_prob, weighted_mean
 
 
@@ -17,6 +23,10 @@ DEFAULT_THETA = 0.5
 
 
 class BernoulliPDF(ScalarPDF):
+    """
+    Implements the Bernoulli probability distribution for a binary
+    response variate, X.
+    """
 
     def __init__(self, theta: Value = DEFAULT_THETA):
         """
@@ -39,33 +49,34 @@ class BernoulliPDF(ScalarPDF):
         theta = self.parameters()[0]
         return theta * (1 - theta)
 
-    def log_prob(self, X: Value) -> Value:
+    def log_prob(self, data: Value) -> Value:
         theta = guard_prob(self.parameters()[0])
-        return X * np.log(theta) + (1 - X) * np.log(1 - theta)
+        return data * np.log(theta) + (1 - data) * np.log(1 - theta)
 
-    def _internal_parameters(self, theta: Value) -> Values:
-        theta = guard_prob(theta)
+    def _internal_parameters(self, *theta: Values) -> Values:
+        theta = guard_prob(theta[0])
         eta = logit(theta)
         return (eta,)
 
-    def _distributional_parameters(self, eta: Value) -> Values:
+    def _distributional_parameters(self, *psi: Values) -> Values:
+        eta = psi[0]
         theta = logistic(eta)
         return (theta,)
 
     def _estimate_parameters(
-        self, X: Value, W: Optional[Value] = None, **kwargs: dict
+        self, data: Value, weights: Optional[Value] = None, **kwargs: dict
     ) -> Values:
-        X, W = check_data(X, W)
-        theta = weighted_mean(W, X)
+        data, weights = check_data(data, weights)
+        theta = weighted_mean(weights, data)
         return (theta,)
 
-    def _internal_gradient(self, X: Value) -> Values:
-        # d L / d eta = X - E[X]
+    def _internal_gradient(self, data: Value) -> Values:
+        # d L / d eta = data - E[data]
         mu = self.mean()
-        return (X - mu,)
+        return (data - mu,)
 
-    def _internal_negHessian(self, X: Value) -> Values2D:
-        # - d^2 L / d eta^2 = Var[X]
+    def _internal_neg_hessian(self, data: Value) -> Values2D:
+        # - d^2 L / d eta^2 = Var[data]
         v = self.variance()
         return ((v,),)
 
@@ -78,34 +89,30 @@ if __name__ == "__main__":
     assert bd.parameters() == (DEFAULT_THETA,)
     assert bd.mean() == DEFAULT_THETA
     assert bd.variance() == DEFAULT_THETA * (1 - DEFAULT_THETA)
-
-    t_theta = bd.parameters()
-    t_eta = bd._internal_parameters(*t_theta)
-    t_theta2 = bd._distributional_parameters(*t_eta)
-    t_eta2 = bd._internal_parameters(*t_theta2)
-    assert t_theta2 == t_theta
-    assert t_eta2 == t_eta
     print("Passed default parameter tests!")
 
     # Test specified parameter
-    theta = 0.123456
-    bd = BernoulliPDF(theta)
-    assert bd.parameters() == (theta,)
-    assert bd.mean() == theta
-    assert bd.variance() == theta * (1 - theta)
+    THETA = 0.123456
+    bd = BernoulliPDF(THETA)
+    assert bd.parameters() == (THETA,)
+    assert bd.mean() == THETA
+    assert bd.variance() == THETA * (1 - THETA)
     print("Passed specified parameter tests!")
 
+    assert check_transformations(bd)
+    print("Passed parameter transformations tests!")
+
     # Test fitting 1 observation - be careful with 0 or 1!
-    for X in [1e-3, 0.9, 0.5, 0.1, 1, 0]:
+    for value in [1e-3, 0.9, 0.5, 0.1, 1, 0]:
         bd = BernoulliPDF()
-        res = bd.fit(X)
-        assert np.abs(bd.parameters()[0] - X) < 1e-6
+        res = bd.fit(value)
+        assert np.abs(bd.parameters()[0] - value) < 1e-6
     print("Passed fitting 1 observation tests!")
 
     # Test fitting multiple observations
     for n in range(2, 11):
-        X = np.random.randint(0, 2, n)
+        values = np.random.randint(0, 2, n)
         bd = BernoulliPDF()
-        res = bd.fit(X)
-        assert np.abs(bd.parameters()[0] - np.mean(X)) < 1e-6
+        res = bd.fit(values)
+        assert np.abs(bd.parameters()[0] - np.mean(values)) < 1e-6
     print("Passed fitting multiple observations tests!")

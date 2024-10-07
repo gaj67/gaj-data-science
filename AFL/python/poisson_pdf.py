@@ -17,6 +17,7 @@ from scalar_pdf import (
     Value,
     Values,
     Values2D,
+    is_divergent,
     check_transformations,
 )
 
@@ -44,6 +45,15 @@ class PoissonPDF(ScalarPDF):
     @staticmethod
     def default_parameters() -> Values:
         return (DEFAULT_LAMBDA,)
+
+    @staticmethod
+    def is_valid_parameters(*params: Values) -> bool:
+        if len(params) != 1:
+            return False
+        for value in params:
+            if is_divergent(value) or np.any(value < 0):
+                return False
+        return True
 
     def mean(self) -> Value:
         lam = self.parameters()[0]
@@ -106,16 +116,16 @@ if __name__ == "__main__":
     print("Passed parameter transformations tests!")
 
     # Test fitting 1 observation
-    for value in [0, 1, 10, 100]:
+    for X in [0, 1, 10, 100]:
         pd = PoissonPDF()
-        res = pd.fit(value)
-        assert np.abs(pd.mean() - value) < 1e-6
+        res = pd.fit(X)
+        assert np.abs(pd.mean() - X) < 1e-6
     print("Passed fitting 1 observation tests!")
 
     # Test fitting multiple observations
     for n in range(2, 11):
-        values = np.random.randint(0, 100, n)
+        X = np.random.randint(0, 100, n)
         pd = PoissonPDF()
-        res = pd.fit(values)
-        assert np.abs(pd.mean() - np.mean(values)) < 1e-6
+        res = pd.fit(X)
+        assert np.abs(pd.mean() - np.mean(X)) < 1e-6
     print("Passed fitting multiple observations tests!")

@@ -11,6 +11,7 @@ from scalar_pdf import (
     Value,
     Values,
     Values2D,
+    is_divergent,
     check_transformations,
 )
 from stats_tools import logistic, logit, guard_prob, weighted_mean
@@ -37,6 +38,15 @@ class BernoulliPDF(ScalarPDF):
     @staticmethod
     def default_parameters() -> Values:
         return (DEFAULT_THETA,)
+
+    @staticmethod
+    def is_valid_parameters(*params: Values) -> bool:
+        if len(params) != 1:
+            return False
+        for value in params:
+            if is_divergent(value) or np.any(value < 0) or np.any(value > 1):
+                return False
+        return True
 
     def mean(self) -> Value:
         theta = self.parameters()[0]
@@ -99,16 +109,16 @@ if __name__ == "__main__":
     print("Passed parameter transformations tests!")
 
     # Test fitting 1 observation - be careful with 0 or 1!
-    for value in [1e-3, 0.9, 0.5, 0.1, 1, 0]:
+    for X in [1e-3, 0.9, 0.5, 0.1, 1, 0]:
         bd = BernoulliPDF()
-        res = bd.fit(value)
-        assert np.abs(bd.mean() - value) < 1e-6
+        res = bd.fit(X)
+        assert np.abs(bd.mean() - X) < 1e-6
     print("Passed fitting 1 observation tests!")
 
     # Test fitting multiple observations
     for n in range(2, 11):
-        values = np.random.randint(0, 2, n)
+        X = np.random.randint(0, 2, n)
         bd = BernoulliPDF()
-        res = bd.fit(values)
-        assert np.abs(bd.mean() - np.mean(values)) < 1e-6
+        res = bd.fit(X)
+        assert np.abs(bd.mean() - np.mean(X)) < 1e-6
     print("Passed fitting multiple observations tests!")

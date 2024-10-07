@@ -4,17 +4,14 @@ This module implements the Bernoulli distribution.
 The distributional parameter, theta, is also the mean, mu.
 """
 
-from typing import Optional
-
 import numpy as np
 
 from scalar_pdf import (
     ScalarPDF,
-    check_data,
-    check_transformations,
     Value,
     Values,
     Values2D,
+    check_transformations,
 )
 from stats_tools import logistic, logit, guard_prob, weighted_mean
 
@@ -64,19 +61,18 @@ class BernoulliPDF(ScalarPDF):
         return (theta,)
 
     def _estimate_parameters(
-        self, data: Value, weights: Optional[Value] = None, **kwargs: dict
+        self, data: Value, weights: Value, **kwargs: dict
     ) -> Values:
-        data, weights = check_data(data, weights)
         theta = weighted_mean(weights, data)
         return (theta,)
 
     def _internal_gradient(self, data: Value) -> Values:
-        # d L / d eta = data - E[data]
+        # d L / d eta = X - E[X]
         mu = self.mean()
         return (data - mu,)
 
     def _internal_neg_hessian(self, data: Value) -> Values2D:
-        # - d^2 L / d eta^2 = Var[data]
+        # - d^2 L / d eta^2 = Var[X]
         v = self.variance()
         return ((v,),)
 
@@ -106,7 +102,7 @@ if __name__ == "__main__":
     for value in [1e-3, 0.9, 0.5, 0.1, 1, 0]:
         bd = BernoulliPDF()
         res = bd.fit(value)
-        assert np.abs(bd.parameters()[0] - value) < 1e-6
+        assert np.abs(bd.mean() - value) < 1e-6
     print("Passed fitting 1 observation tests!")
 
     # Test fitting multiple observations
@@ -114,5 +110,5 @@ if __name__ == "__main__":
         values = np.random.randint(0, 2, n)
         bd = BernoulliPDF()
         res = bd.fit(values)
-        assert np.abs(bd.parameters()[0] - np.mean(values)) < 1e-6
+        assert np.abs(bd.mean() - np.mean(values)) < 1e-6
     print("Passed fitting multiple observations tests!")

@@ -1,6 +1,7 @@
 """
 This module implements code and constants to help analyse match records.
 """
+
 from collections import defaultdict
 from datetime import datetime
 

@@ -1,6 +1,7 @@
 """
 This module provides some simple tools for statistical analysis and model fitting.
 """
+
 from typing import Optional, List, Tuple
 from numpy import ndarray
 from numpy.typing import ArrayLike

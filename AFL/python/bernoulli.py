@@ -8,8 +8,7 @@ from typing import Optional
 
 import numpy as np
 
-from distribution import (
-    Distribution,
+from core.value_types import (
     Value,
     Values,
     is_divergent,
@@ -17,7 +16,9 @@ from distribution import (
     to_value,
 )
 
-from fitter import Fittable, Controls, Results
+from core.distribution import Distribution
+
+from core.fitter import Fittable, Controls, Results
 
 
 from stats_tools import guard_prob, weighted_mean

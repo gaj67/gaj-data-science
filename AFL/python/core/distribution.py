@@ -9,91 +9,8 @@ the value(s) of the response variate.
 """
 
 from abc import ABC, abstractmethod
-from typing import TypeAlias, Union, Tuple
-from numpy import ndarray
 
-import numpy as np
-
-
-###############################################################################
-# Useful types:
-
-# A Vector is a 1D array
-Vector: TypeAlias = ndarray
-
-# A scalar is a float-like single value.
-Scalar: TypeAlias = float  # 'float' really means 'float-like'
-
-# A Value represents the 'value' of a single parameter or variate, which may in
-# fact be either single-valued (i.e. scalar) or multi-valued (i.e. a vector of
-# values).
-Value: TypeAlias = Union[Scalar, Vector]
-
-# A Values instance represents the 'value(s)' of one or more parameters or variates
-# (each being either single-valued or multi-valued) in some fixed order.
-Values: TypeAlias = Tuple[Value]
-
-# A Values2d instance represents the 'value(s)' of one or more parameters or variates
-# (each being either single-valued or multi-valued) in some fixed, two-dimensional order.
-Values2d: TypeAlias = Tuple[Values]
-
-
-###############################################################################
-# Useful functions:
-
-
-def to_value(value: object) -> Value:
-    """
-    Converts a scalar value or array-like of values to the Value type.
-    """
-    if not isinstance(value, ndarray):
-        if hasattr(value, "__len__"):
-            value = np.asarray(value)
-        elif hasattr(value, "__iter__"):
-            value = np.fromiter(value, float)
-    if isinstance(value, ndarray) and len(value.shape) > 1:
-        raise ValueError("Value must be scalar or vector-like")
-    return value
-
-
-def is_scalar(value: Value) -> bool:
-    """
-    Determines whether or not the argument is scalar-valued.
-
-    Input:
-        - value (float or ndarray): The value(s).
-    Returns:
-        - flag (bool): A value of True if the input is scalar,
-            otherwise a value of False.
-    """
-    return not isinstance(value, ndarray) or len(value.shape) == 0
-
-
-def is_vector(value: Value) -> bool:
-    """
-    Determines whether or not the argument is vector-valued.
-
-    Input:
-        - value (float or ndarray): The value(s).
-    Returns:
-        - flag (bool): A value of True if the input is a vector,
-            otherwise a value of False.
-    """
-    return isinstance(value, ndarray) and len(value.shape) == 1
-
-
-def is_divergent(value: Value) -> bool:
-    """
-    Determines whether the value(s) indicate divergence.
-
-    Input:
-        - value (float or ndarray): The value(s).
-    Returns:
-        - flag (bool): A value of True if there is any divergence,
-            else False.
-    """
-    return np.any(np.isnan(value)) or np.any(np.isinf(value))
-
+from .value_types import Value, Values, is_scalar, is_divergent
 
 ###############################################################################
 # Base parameter class:
@@ -214,7 +131,7 @@ class Distribution(Parameterised):
         Obtains the mean(s) of the distribution(s).
 
         Returns:
-            - mu (float or ndarray): The mean value(s).
+            - mu (float-like or vector): The mean value(s).
         """
         raise NotImplementedError
 
@@ -224,7 +141,7 @@ class Distribution(Parameterised):
         Obtains the variance(s) of the distribution(s).
 
         Returns:
-            - sigma_sq (float or ndarray): The variance(s).
+            - sigma_sq (float-like or vector): The variance(s).
         """
         raise NotImplementedError
 
@@ -234,9 +151,9 @@ class Distribution(Parameterised):
         Computes the log-likelihood(s) of the given data.
 
         Input:
-            - data (float or ndarray): The value(s) of the response variate.
+            - data (float-like or vector): The value(s) of the response variate.
 
         Returns:
-            - log_prob (float or ndarray): The log-likelihood(s).
+            - log_prob (float-like or vector): The log-likelihood(s).
         """
         raise NotImplementedError

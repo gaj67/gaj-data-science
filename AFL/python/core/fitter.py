@@ -11,19 +11,22 @@ underlying, direct parameterisation.
 
 from abc import ABC, abstractmethod
 from typing import TypeAlias, Optional, Type, Callable, Dict, Any
-from numpy import ndarray
 
 import numpy as np
 from numpy.linalg import solve
 
-from distribution import (
-    Parameterised,
+from .value_types import (
     Value,
+    ValueLike,
     Values,
     Values2d,
     Vector,
-    is_scalar,
+    is_scalars,
+    to_vector,
+    to_matrix,
 )
+
+from .distribution import Parameterised
 
 
 ###############################################################################
@@ -37,72 +40,9 @@ Controls: TypeAlias = Dict[str, Any]
 # Encapsulates the performance summary of the parameter estimation algorithm.
 Results: TypeAlias = Dict[str, Any]
 
-# A Matrix is a 2D array
-Matrix: TypeAlias = ndarray
-
 
 ###############################################################################
 # Useful functions:
-
-
-def is_scalars(*values: Values) -> bool:
-    """
-    Determines whether or not the given values are all scalar.
-
-    Input:
-        - values (tuple of float or ndarray): The values.
-    Returns:
-        - flag (bool): A value of True if all values are scalar, otherwise False.
-    """
-    return np.all(list(map(is_scalar, values)))
-
-
-def to_vector(value: object) -> Vector:
-    """
-    Converts the value(s) to an ndarray vector.
-
-    Input:
-        - value (float-like or array-like): The input value(s).
-
-    Returns:
-        - vec (ndarray): The output vector.
-    """
-    if isinstance(value, ndarray):
-        if len(value.shape) == 0:
-            vec = np.array([value])
-        else:
-            vec = value
-    elif hasattr(value, "__len__"):
-        vec = np.asarray(value)
-    elif hasattr(value, "__iter__"):
-        vec = np.fromiter(value, float)
-    else:
-        vec = np.array([value])
-    if len(vec.shape) != 1:
-        raise ValueError("Value must be scalar or vector-like")
-    return vec
-
-
-def to_matrix(values: Values, n_dim: int) -> Matrix:
-    """
-    Redimensions the input tuple into a matrix.
-
-    Input:
-        - values (tuple of float or ndarray): The input values.
-        - n_dim (int): The required row dimension.
-
-    Returns:
-        - mat (ndarray): The output matrix.
-    """
-
-    def convert(value: Value) -> ndarray:
-        if is_scalar(value):
-            return np.array([value] * n_dim)
-        if value.shape[0] != n_dim:
-            raise ValueError("Incompatible dimensions!")
-        return value
-
-    return np.column_stack([convert(v) for v in values])
 
 
 def mean_value(weights: Vector, value: Value) -> float:
@@ -111,7 +51,7 @@ def mean_value(weights: Vector, value: Value) -> float:
 
     Input:
         - weights (ndarray): The vector of weights.
-        - values (float or ndarray): The scalar or vector value.
+        - values (float-like or vector): The scalar or vector value.
 
     Returns:
         - mean (float): The value mean.
@@ -125,7 +65,7 @@ def mean_values(weights: Vector, values: Values) -> Vector:
 
     Input:
         - weights (ndarray): The vector of weights.
-        - values (tuple of float or ndarray): The scalar or vector values.
+        - values (tuple of float-like or vector): The scalar or vector values.
 
     Returns:
         - means (ndarray): The vector of value means.
@@ -135,6 +75,39 @@ def mean_values(weights: Vector, values: Values) -> Vector:
 
 ###############################################################################
 # Abstract data fitting class:
+
+
+class Transformable:
+    """
+    Provides an invertable transformation between the default parameterisation
+    and an alternative parameterisation.
+    """
+
+    def transform(self, *params: Values) -> Values:
+        """
+        Transforms the parameter values into an alternative representation.
+
+        Input:
+            - params (tuple of float-like or vector): The parameter values.
+
+        Returns:
+            - alt_params (tuple of float-like or vector): The alternative parameter values.
+        """
+        # By default, assume an identity transformation
+        return params
+
+    def inverse_transform(self, *alt_params: Values) -> Values:
+        """
+        Transforms the alternative parameter values into the usual representation.
+
+        Input:
+            - alt_params (tuple of float-like or vector): The alternative parameter values.
+
+        Returns:
+            - params (tuple of float-like or vector): The parameter values
+        """
+        # By default, assume an identity transformation
+        return alt_params
 
 
 class Fitter(ABC):
@@ -159,37 +132,14 @@ class Fitter(ABC):
         """
         self._params = params
 
-    def get_parameters(self) -> Values:
+    def underlying(self) -> Parameterised:
         """
-        Obtains the current values of the parameters.
+        Obtains the underlying parameterisation.
 
         Returns:
-            - params (Values): The parameter values.
+            - params (Parameterised): The parameterisation.
         """
-        return self._params.parameters()
-
-    def is_valid_parameters(self, *params: Values) -> bool:
-        """
-        Checks whether the current estimates of the underlying
-        parameters are valid.
-
-        Input:
-            - params (Values): The parameter values.
-
-        Returns:
-            - flag (bool): A  value of True if the values are valid,
-                else False.
-        """
-        return self._params.is_valid_parameters(*params)
-
-    def set_parameters(self, *params: Values):
-        """
-        Overrides the values of the parameters.
-
-        Input:
-            - params (Values): The parameter values.
-        """
-        return self._params.set_parameters(*params)
+        return self._params
 
     # ----------------------------------------------------------------
     # Methods for the estimation algorithm
@@ -218,8 +168,8 @@ class Fitter(ABC):
 
     def fit(
         self,
-        data: Value,
-        weights: Optional[Value] = None,
+        data: ValueLike,
+        weights: Optional[ValueLike] = None,
         **controls: Controls,
     ) -> Results:
         """
@@ -250,10 +200,10 @@ class Fitter(ABC):
 
         # Enforce a single distribution, i.e. scalar parameter values.
         if all_controls["init"]:
-            self.set_parameters(
+            self.underlying().set_parameters(
                 *self.estimate_parameters(v_data, v_weights, all_controls)
             )
-        elif not is_scalars(*self.get_parameters()):
+        elif not is_scalars(*self.underlying().parameters()):
             raise ValueError("Parameters are multi-valued!")
 
         # Iteratively optimise the parameters
@@ -290,8 +240,8 @@ class Fitter(ABC):
         It is assumed that suitable initial parameter values have already been set.
 
         Inputs:
-            - data (float or ndarray): The value(s) of the observation(s).
-            - weights (float or ndarray): The weight(s) of the observation(s).
+            - data (float-like or vector): The value(s) of the observation(s).
+            - weights (float-like or vector): The weight(s) of the observation(s).
             - controls (dict): The user-specified controls. See default_controls().
 
         Returns:
@@ -301,31 +251,33 @@ class Fitter(ABC):
                 - score_tol (float): The final score tolerance.
         """
         # Get current parameter estimates
-        params = self.get_parameters()
+        params = self.underlying().parameters()
         print("DEBUG[0]: Initial parameters =", params)
         score = mean_value(weights, self.compute_score(params, data, controls))
         score_tol = 0.0
 
+        tf = self if isinstance(self, Transformable) else Transformable()
+
         num_iters = 0
         while num_iters < controls["max_iters"]:
             # Obtain update and check if small
-            d_alt_params = self.compute_update(params, data, weights, controls)
-            print("DEBUG: update =", d_alt_params)
-            if np.max(np.abs(d_alt_params)) < controls["grad_tol"]:
+            delta_params = self.compute_update(params, data, weights, controls)
+            print("DEBUG: update =", delta_params)
+            if np.max(np.abs(delta_params)) < controls["grad_tol"]:
                 break
 
             # Apply line search
             num_iters += 1
-            alt_params = np.array(self.transform_parameters(*params), dtype=float)
+            vec_params = np.array(tf.transform(*params), dtype=float)
             step_size = controls["step_size"]
             while True:
                 # Apply update
-                alt_params += step_size * d_alt_params
-                params = self.invert_parameters(*alt_params)
-                if self.is_valid_parameters(*params):
+                vec_params += step_size * delta_params
+                params = tf.inverse_transform(*vec_params)
+                if self.underlying().is_valid_parameters(*params):
                     break
                 # Retract update
-                alt_params -= step_size * d_alt_params
+                vec_params -= step_size * delta_params
                 # Reduce step-size
                 step_size *= 0.5
 
@@ -339,7 +291,7 @@ class Fitter(ABC):
 
         if num_iters > 0:
             print("DEBUG: Final parameters =", params)
-            self.set_parameters(*params)
+            self.underlying().set_parameters(*params)
 
         return {
             "score": score,
@@ -372,7 +324,8 @@ class Fitter(ABC):
         the objective function, evaluated at the current parameter estimates
         and averaged over the observed value(s).
 
-        NOTE: Derivatives are with respect to the alternative parameterisation.
+        NOTE: If the fitter is Transformable then the update is with respect to
+        the transformed parameterisation.
 
         Input:
             - params (tuple of float): The current parameter estimatess.
@@ -381,36 +334,9 @@ class Fitter(ABC):
             - controls (dict): Additional user-supplied information.
 
         Returns:
-            - delta (ndarray): The alternative parameter update vector.
+            - delta (ndarray): The parameter update vector.
         """
         raise NotImplementedError
-
-    def transform_parameters(self, *params: Values) -> Values:
-        """
-        Transforms the parameter values into an internal representation
-        more suitable for optimisation.
-
-        Input:
-            - params (tuple of float or ndarray): The parameter values.
-
-        Returns:
-            - alt_params (tuple of float or ndarray): The internal parameter values.
-        """
-        # By default, assume an identity transformation
-        return params
-
-    def invert_parameters(self, *alt_params: Values) -> Values:
-        """
-        Transforms the internal parameter values into the usual representation.
-
-        Input:
-            - alt_params (tuple of float or ndarray): The internal parameter values.
-
-        Returns:
-            - params (tuple of float or ndarray): The parameter values
-        """
-        # By default, assume an identity transformation
-        return alt_params
 
 
 # Decorator for easily overriding the default values of fitting controls
@@ -458,8 +384,8 @@ class Fittable:
     @abstractmethod
     def fit(
         self,
-        data: Value,
-        weights: Optional[Value] = None,
+        data: ValueLike,
+        weights: Optional[ValueLike] = None,
         **controls: Controls,
     ) -> Results:
         """
@@ -497,8 +423,8 @@ def add_fitter(
 
         def fit(
             self: Parameterised,
-            data: Value,
-            weights: Optional[Value] = None,
+            data: ValueLike,
+            weights: Optional[ValueLike] = None,
             **controls: Controls,
         ) -> Results:
             return fitter_class(self).fit(data, weights, **controls)
@@ -514,15 +440,13 @@ def add_fitter(
 # Specialised data fitting classes:
 
 
+@fitting_controls(step_size=0.1)
 class GradientFitter(Fitter):
     """
     Estimates the parameters of the implemented objective function
     via iterative gradient optimisation.
 
     The parameter values are stored in a Parameterised instance.
-
-    For convenience, derivatives of the objective function may be
-    computed with respect to an alternative parameterisation.
     """
 
     def compute_update(
@@ -538,7 +462,8 @@ class GradientFitter(Fitter):
         Computes the gradient(s) of the objective function for the
         current parameter estimates, evaluated at the observed value(s).
 
-        NOTE: Derivatives are with respect to the alternative parameterisation.
+        NOTE: If the fitter is Transformable then derivatives are with respect to
+        the transformed parameterisation.
 
         Input:
             - params (tuple of float): The current parameter estimatess.
@@ -546,8 +471,7 @@ class GradientFitter(Fitter):
             - controls (dict): Additional user-supplied information.
 
         Returns:
-            - grad (tuple of float or ndarray): The first derivatives
-                with respect to the alternative parameterisation.
+            - grad (tuple of float-like or vector): The first derivatives.
         """
         raise NotImplementedError
 
@@ -558,9 +482,6 @@ class NewtonRaphsonFitter(Fitter):
     via iterative Newton-Raphson optimisation.
 
     The parameter values are stored in a Parameterised instance.
-
-    For convenience, derivatives of the objective function may be
-    computed with respect to an alternative parameterisation.
     """
 
     def compute_update(
@@ -583,7 +504,8 @@ class NewtonRaphsonFitter(Fitter):
         Computes the gradient(s) of the objective function for the
         current parameter estimates, evaluated at the observed value(s).
 
-        NOTE: Derivatives are with respect to the alternative parameterisation.
+        NOTE: If the fitter is Transformable then derivatives are with respect to
+        the transformed parameterisation.
 
         Input:
             - params (tuple of float): The current parameter estimatess.
@@ -591,8 +513,7 @@ class NewtonRaphsonFitter(Fitter):
             - controls (dict): Additional user-supplied information.
 
         Returns:
-            - grad (tuple of float or ndarray): The first derivatives
-                with respect to the alternative parameterisation.
+            - grad (tuple of float-like or vector): The first derivatives.
         """
         raise NotImplementedError
 
@@ -605,7 +526,8 @@ class NewtonRaphsonFitter(Fitter):
         of the objective function for the current parameter estimates,
         evaluated at the observed value(s).
 
-        NOTE: Derivatives are with respect to the alternative parameterisation.
+        NOTE: If the fitter is Transformable then derivatives are with respect to
+        the transformed parameterisation.
 
         Note that the expected value of the negative Hessian matrix is the
         variance matrix of the alternative variates. Consequently, the returned
@@ -618,7 +540,6 @@ class NewtonRaphsonFitter(Fitter):
             - controls (dict): Additional user-supplied information.
 
         Returns:
-            - Sigma (matrix of float or ndarray): The negative second derivatives
-                with respect to the alternative parameterisation.
+            - Sigma (matrix of float-like or vector): The negative second derivatives.
         """
         raise NotImplementedError

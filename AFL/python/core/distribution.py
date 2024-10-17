@@ -10,10 +10,18 @@ the value(s) of the response variate.
 
 from abc import ABC, abstractmethod
 
-from .value_types import Value, Values, is_scalar, is_divergent
+from .data_types import (
+    Value,
+    Values,
+    Vector,
+    VectorLike,
+    MatrixLike,
+    is_scalar,
+    is_divergent,
+)
 
 ###############################################################################
-# Base parameter class:
+# Base parameter classes:
 
 
 class Parameterised(ABC):
@@ -106,6 +114,39 @@ class Parameterised(ABC):
         return True
 
 
+class Transformable:
+    """
+    Provides an invertable transformation between the default parameterisation
+    and an alternative parameterisation.
+    """
+
+    def transform(self, *params: Values) -> Values:
+        """
+        Transforms the parameter values into an alternative representation.
+
+        Input:
+            - params (tuple of float-like or vector): The parameter values.
+
+        Returns:
+            - alt_params (tuple of float-like or vector): The alternative parameter values.
+        """
+        # By default, assume an identity transformation
+        return params
+
+    def inverse_transform(self, *alt_params: Values) -> Values:
+        """
+        Transforms the alternative parameter values into the usual representation.
+
+        Input:
+            - alt_params (tuple of float-like or vector): The alternative parameter values.
+
+        Returns:
+            - params (tuple of float-like or vector): The parameter values
+        """
+        # By default, assume an identity transformation
+        return alt_params
+
+
 ###############################################################################
 # Base distribution class:
 
@@ -146,14 +187,84 @@ class Distribution(Parameterised):
         raise NotImplementedError
 
     @abstractmethod
-    def log_prob(self, data: Value) -> Value:
+    def log_prob(self, data: VectorLike) -> Value:
         """
         Computes the log-likelihood(s) of the given data.
 
         Input:
-            - data (float-like or vector): The value(s) of the response variate.
+            - data (vector-like): The value(s) of the response variate.
 
         Returns:
-            - log_prob (float-like or vector): The log-likelihood(s).
+            - log_prob (float or vector): The log-likelihood(s).
+        """
+        raise NotImplementedError
+
+
+###############################################################################
+# Base regression class:
+
+
+class ConditionalDistribution(Parameterised):
+    """
+    A parameterised, conditional probability distribution of a scalar
+    variate, X, given scalar or vector covariate(s), Z.
+
+    It is always assumed that the regression parameters are bundled
+    into the first parameter, which is transformed (using Z) into
+    the dependent parameter of the underlying distribution.
+    Any subsequent parameters are treated as independent parameters
+    of the underlying distribution.
+
+    Use an empty array if the number of regression weights is not
+    known in advance of data fitting.
+    """
+
+    def __init__(self, regression_params: Vector, independent_params: Vector):
+        """
+        Initialises the conditional distribution.
+
+        Input:
+            - regression_params (vector): The regression parameters.
+            - independent_params (vector): The independent parameters.
+        """
+        super().__init__(regression_params, *independent_params)
+
+    @abstractmethod
+    def mean(self, covariates: MatrixLike) -> Value:
+        """
+        Obtains the conditional mean(s) of the distribution(s).
+
+        Input:
+            - covariates (matrix-like): The covariate value(s).
+
+        Returns:
+            - mu (float-like or vector): The mean value(s).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def variance(self, covariates: MatrixLike) -> Value:
+        """
+        Obtains the conditional variance(s) of the distribution(s).
+
+        Input:
+            - covariates (matrix-like): The covariate value(s).
+
+        Returns:
+            - sigma_sq (float-like or vector): The variance(s).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def log_prob(self, data: VectorLike, covariates: MatrixLike) -> Value:
+        """
+        Computes the log-likelihood(s) of the given data.
+
+        Input:
+            - data (vector-like): The value(s) of the response variate.
+            - covariates (matrix-like): The covariate value(s).
+
+        Returns:
+            - log_prob (float or vector): The log-likelihood(s).
         """
         raise NotImplementedError

@@ -13,12 +13,49 @@ from abc import ABC, abstractmethod
 from .data_types import (
     Value,
     Values,
-    Vector,
     VectorLike,
     MatrixLike,
     is_scalar,
+    is_vector,
     is_divergent,
 )
+
+###############################################################################
+# Handy methods for implementing distributions:
+
+
+def guard_prob(value: Value) -> Value:
+    """
+    Guard against extreme probability values.
+
+    Input:
+        - value (float or vector): The value(s) to be checked.
+    Returns:
+        - value' (float or vector): The adjusted value(s).
+    """
+    if is_scalar(value):
+        return 1e-30 if value <= 0.0 else 1 - 1e-10 if value >= 1.0 else value
+    value = value.copy()
+    value[value <= 0] = 1e-30
+    value[value >= 1] = 1 - 1e-10
+    return value
+
+
+def guard_pos(value: Value) -> Value:
+    """
+    Guard against values going non-positive.
+
+    Input:
+        - value (float or vector): The value(s) to be checked.
+    Returns:
+        - value' (float or vector): The adjusted value(s).
+    """
+    if is_scalar(value):
+        return 1e-30 if value <= 0.0 else value
+    value = value.copy()
+    value[value <= 0] = 1e-30
+    return value
+
 
 ###############################################################################
 # Base parameter classes:
@@ -73,26 +110,7 @@ class Parameterised(ABC):
         """
         if not self.is_valid_parameters(*params):
             raise ValueError("Invalid parameters!")
-
-        _params = []
-        size = 1
-        for i, param in enumerate(params):
-            if not is_scalar(param):
-                if len(param.shape) != 1:
-                    raise ValueError(f"Expected parameter {i} to be uni-dimensional")
-                _len = len(param)
-                if _len <= 0:
-                    raise ValueError(f"Expected parameter {i} to be non-empty")
-                if _len == 1:
-                    # Take scalar value
-                    param = param[0]
-                elif size == 1:
-                    size = _len
-                elif size != _len:
-                    raise ValueError(f"Expected parameter {i} to have length {size}")
-            _params.append(param)
-        self._params = tuple(_params)
-        self._size = size
+        self._params = params
 
     def is_valid_parameters(self, *params: Values) -> bool:
         """
@@ -101,14 +119,16 @@ class Parameterised(ABC):
         each parameter should have finite value(s) within appropriate bounds.
 
         Input:
-            - params (tuple of float): The proposed parameter values.
+            - params (tuple of float or vector): The proposed parameter values.
 
         Returns:
-            - flag (bool): A  value of True if the values are valid,
+            - flag (bool): A  value of True if the values are all valid,
                 else False.
         """
-        # By default, just check for  divergence
+        # By default, just check for dimensionality and divergence
         for value in params:
+            if not is_scalar(value) and not is_vector(value):
+                return False
             if is_divergent(value):
                 return False
         return True
@@ -187,12 +207,12 @@ class Distribution(Parameterised):
         raise NotImplementedError
 
     @abstractmethod
-    def log_prob(self, data: VectorLike) -> Value:
+    def log_prob(self, variate: VectorLike) -> Value:
         """
         Computes the log-likelihood(s) of the given data.
 
         Input:
-            - data (vector-like): The value(s) of the response variate.
+            - variate (vector-like): The value(s) of the response variate.
 
         Returns:
             - log_prob (float or vector): The log-likelihood(s).
@@ -218,16 +238,6 @@ class ConditionalDistribution(Parameterised):
     Use an empty array if the number of regression weights is not
     known in advance of data fitting.
     """
-
-    def __init__(self, regression_params: Vector, independent_params: Vector):
-        """
-        Initialises the conditional distribution.
-
-        Input:
-            - regression_params (vector): The regression parameters.
-            - independent_params (vector): The independent parameters.
-        """
-        super().__init__(regression_params, *independent_params)
 
     @abstractmethod
     def mean(self, covariates: MatrixLike) -> Value:
@@ -256,15 +266,33 @@ class ConditionalDistribution(Parameterised):
         raise NotImplementedError
 
     @abstractmethod
-    def log_prob(self, data: VectorLike, covariates: MatrixLike) -> Value:
+    def log_prob(self, variate: VectorLike, covariates: MatrixLike) -> Value:
         """
         Computes the log-likelihood(s) of the given data.
 
         Input:
-            - data (vector-like): The value(s) of the response variate.
+            - variate (vector-like): The value(s) of the response variate.
             - covariates (matrix-like): The covariate value(s).
 
         Returns:
             - log_prob (float or vector): The log-likelihood(s).
+        """
+        raise NotImplementedError
+
+    def inverse_parameters(self, covariates: MatrixLike) -> Values:
+        """
+        Computes the value(s) of the distributional parameter(s)
+        given the value(s) of the covariate(s).
+
+        Note: Functionally this computes the link parameter via
+        the regression function and then applies the inverse link
+        function.
+
+        Input:
+            - covariates (matrix-like): The covariate value(s).
+
+        Returns:
+            - params (tuple of float or vector): The values(s)
+                of the distributional parameter(s).
         """
         raise NotImplementedError

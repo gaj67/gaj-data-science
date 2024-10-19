@@ -84,7 +84,7 @@ class Fittable:
 
 
 # Decorator for easily adding an optimiser implementation
-def add_fitter(
+def set_fitter(
     fitter_class: Type[Optimiser],
 ) -> Callable[[Type[Fittable]], Type[Fittable]]:
     """

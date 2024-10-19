@@ -24,7 +24,7 @@ from .distribution import Parameterised
 
 
 ###############################################################################
-# Useful data-types:
+# Useful data-types and methods:
 
 # Encapsulates any and all settings necessary to control the
 # parameter estimation algorithm. See Fitter.default_controls().
@@ -42,6 +42,21 @@ class Data(NamedTuple):
     variate: Vector
     weights: Vector
     covariates: Optional[Matrix] = None
+
+
+def diff_tolerance(values1: Values, values2: Values) -> float:
+    """
+    Computes the maximum absolute difference between two sequences
+    of comparable values.
+
+    Input:
+        - values1 (tuple of floaat or vector): The initial values.
+        - values2 (tuple of floaat or vector): The final values.
+
+    Returns:
+        - tol (float): The tolerance between the values.
+    """
+    return max(np.max(np.abs(v1 - v2)) for v1, v2 in zip(values1, values2))
 
 
 ###############################################################################
@@ -89,14 +104,16 @@ class Optimiser(ABC):
                 previous fit did not achieve convergence.
             - max_iters (int): The maximum number of iterations allowed.
             - step_iters (int): The maximum number of step-size line searches allowed.
-            - score_tol (float): The minimum difference in scores to signal convergence.
+            - score_tol (float): The minimum change in score to signal convergence.
+            - param_tol (float): The minimum change in parameter values to signal convergence.
             - step_size (float): The parameter update scaling factor (or learning rate).
         """
         return {
             "init": True,
             "max_iters": 100,
             "step_iters": 10,
-            "score_tol": 1e-6,
+            "score_tol": 1e-8,
+            "param_tol": 1e-6,
             "step_size": 1.0,
         }
 
@@ -170,19 +187,23 @@ class Optimiser(ABC):
             - results (dict): The summary output, including:
                 - score (float): The final mean score of the data.
                 - num_iters (int): The number of iterations performed.
-                - score_tol (float): The final score tolerance.
-                - converged (bool): Indicates whether or not the
-                    score convergence tolerance was achieved.
+                - score_tol (float): The final score-change tolerance.
+                - param_tol (float): The final parameter-change tolerance.
+                - converged (bool): Indicates whether or not parameter
+                    or score convergence was achieved.
         """
         # Get score of current parameters
         score = self.compute_score(params, data, controls)
+        print("DEBUG[optimise_parameters]: score =", score)
         score_tol = 0.0
+        param_tol = 0.0
         num_iters = 0
         converged = False
 
         while num_iters < controls["max_iters"]:
             # Obtain update
             d_params = self.compute_update(params, data, controls)
+            print("DEBUG[optimise_parameters]: d_params =", d_params)
 
             # Apply line search
             num_iters += 1
@@ -194,8 +215,11 @@ class Optimiser(ABC):
                 if sub_iters > controls["step_iters"]:
                     raise ValueError("Parameters failed to converge within bounds!")
                 # Apply update
-                new_params = (v + step_size * d for v, d in zip(params, d_params))
+                new_params = tuple(v + step_size * d for v, d in zip(params, d_params))
+                print("DEBUG[optimise_parameters]: new_params =", new_params)
                 if self.storage().is_valid_parameters(*new_params):
+                    param_tol = diff_tolerance(params, new_params)
+                    print("DEBUG: param_tol =", param_tol)
                     params = new_params
                     break
                 # Reduce step-size
@@ -203,9 +227,10 @@ class Optimiser(ABC):
 
             # Obtain new score and check convergence
             new_score = self.compute_score(params, data, controls)
-            score_tol = new_score - score
+            score_tol = np.abs(new_score - score)
             score = new_score
-            if np.abs(score_tol) < controls["score_tol"]:
+            if param_tol < controls["param_tol"] or score_tol < controls["score_tol"]:
+                print("DEBUG[optimise_parameters]: Converged! params =", params)
                 converged = True
                 break
 
@@ -213,6 +238,7 @@ class Optimiser(ABC):
             "score": score,
             "num_iters": num_iters,
             "score_tol": score_tol,
+            "param_tol": param_tol,
             "converged": converged,
         }
         return params, results
@@ -331,9 +357,9 @@ class GradientOptimiser(Optimiser):
         grad = mean_values(data.weights, self.compute_gradients(params, data.variate))
         n_hess = self.compute_neg_hessian(params, data.variate)
         if len(n_hess) == 0:
-            return grad
+            return tuple(grad)
         n_hess = np.array([mean_values(data.weights, r) for r in n_hess])
-        return solve(n_hess, grad)
+        return tuple(solve(n_hess, grad))
 
     @abstractmethod
     def compute_gradients(self, params: Values, variate: Vector) -> Values:
@@ -356,7 +382,6 @@ class GradientOptimiser(Optimiser):
         """
         raise NotImplementedError
 
-    @abstractmethod
     def compute_neg_hessian(self, params: Values, variate: Vector) -> Values2d:
         """
         Computes the negative of the Hessian matrix of second derivatives

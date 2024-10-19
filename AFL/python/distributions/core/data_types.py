@@ -159,7 +159,7 @@ def to_matrix(value: MatrixLike, n_rows: int = -1, n_cols: int = -1) -> Matrix:
     """
     mat = np.asarray(value)
     if len(mat.shape) == 0:
-        mat = np.arrray([[mat]])
+        mat = np.array([[mat]])
     elif len(mat.shape) == 1:
         if n_cols >= 0:
             if len(mat) == n_cols:

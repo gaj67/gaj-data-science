@@ -105,7 +105,7 @@ class Regressable:
 
 
 # Decorator for easily adding an optimiser implementation
-def add_regressor(
+def set_regressor(
     fitter_class: Type[Optimiser],
 ) -> Callable[[Type[Regressable]], Type[Regressable]]:
     """
@@ -159,9 +159,12 @@ class GradientRegressor(GradientOptimiser):
 
     def compute_score(self, params: Values, data: Data, controls: Controls) -> float:
         phi, *psi = params
+        print("DEBUG[compute_score]: phi =", phi)
         eta = data.covariates @ phi
+        print("DEBUG[compute_score]: eta =", eta)
         alt_params = eta, *psi
         scores = self.compute_scores(alt_params, data.variate)
+        print("DEBUG[compute_score]: scores =", scores)
         return mean_value(data.weights, scores)
 
     def compute_update(self, params: Values, data: Data, controls: Controls) -> Values:

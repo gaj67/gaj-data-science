@@ -2,6 +2,7 @@
 This module implements the Bernoulli distribution.
 
 The distributional parameter, theta, is also the mean, mu.
+The link parameter is the natural parameter, eta = logit(theta).
 """
 
 from typing import Optional

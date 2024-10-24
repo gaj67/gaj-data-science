@@ -214,8 +214,21 @@ def to_value(value: VectorLike) -> Value:
     Returns:
         - output (float-like or vector-like): The output value(s)
     """
-    vec = to_vector(value)
-    return vec if len(vec) > 1 else vec[0]
+    return as_value(to_vector(value))
+
+
+def as_value(value: Vector) -> Value:
+    """
+    If possible, converts a singleton vector into a scalar.
+    Otherwise, the vector is retained.
+
+    Input:
+        - value (vector): The vector value(s).
+
+    Returns:
+        - value' (flat or vector): The scalar or vector value.
+    """
+    return value[0] if len(value) == 1 else value
 
 
 def mean_value(weights: Vector, value: Value) -> float:

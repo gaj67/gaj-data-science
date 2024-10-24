@@ -9,11 +9,49 @@ a vector of values (see the data_types.Value type).
 from abc import ABC, abstractmethod
 
 from .data_types import (
+    Value,
     Values,
     is_scalar,
     is_vector,
     is_divergent,
 )
+
+###############################################################################
+# Handy methods for guarding against impossible parameter values:
+
+
+def guard_prob(value: Value) -> Value:
+    """
+    Guard against extreme probability values.
+
+    Input:
+        - value (float or vector): The value(s) to be checked.
+    Returns:
+        - value' (float or vector): The adjusted value(s).
+    """
+    if is_scalar(value):
+        return 1e-30 if value <= 0.0 else 1 - 1e-10 if value >= 1.0 else value
+    value = value.copy()
+    value[value <= 0] = 1e-30
+    value[value >= 1] = 1 - 1e-10
+    return value
+
+
+def guard_pos(value: Value) -> Value:
+    """
+    Guard against values going non-positive.
+
+    Input:
+        - value (float or vector): The value(s) to be checked.
+    Returns:
+        - value' (float or vector): The adjusted value(s).
+    """
+    if is_scalar(value):
+        return 1e-30 if value <= 0.0 else value
+    value = value.copy()
+    value[value <= 0] = 1e-30
+    return value
+
 
 ###############################################################################
 # Base parameter class:

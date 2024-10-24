@@ -10,9 +10,10 @@ from typing import Optional
 import numpy as np
 from scipy.special import expit as logistic
 
-import imptools
+if __name__ == "__main__":
+    import imptools
 
-imptools.enable_relative()
+    imptools.enable_relative()
 
 
 from .core.data_types import (
@@ -20,17 +21,21 @@ from .core.data_types import (
     Values,
     Vector,
     VectorLike,
-    MatrixLike,
     is_divergent,
-    to_matrix,
     is_vector,
     to_vector,
+    mean_value,
 )
 
-from .core.distribution import Distribution, ConditionalDistribution, guard_prob
-from .core.optimiser import Data, Controls, Results  # , fitting_controls
+from .core.distribution import (
+    Distribution,
+    DelegatedDistribution,
+    guard_prob,
+    as_scalar,
+)
+from .core.optimiser import Data, Controls, Results
 from .core.fitter import Fittable
-from .core.regressor import Regressable, GradientRegressor, set_regressor
+from .core.regressor import Regressable, GradientRegressor, set_regressor, DEFAULT_PHI
 
 
 DEFAULT_THETA = 0.5
@@ -79,7 +84,7 @@ class BernoulliDistribution(Distribution, Fittable):
         theta = guard_prob(self.parameters()[0])
         v_data = to_vector(variate)
         ln_p = v_data * np.log(theta) + (1 - v_data) * np.log(1 - theta)
-        return ln_p if len(ln_p) > 1 else ln_p[0]
+        return as_scalar(ln_p)
 
     def fit(
         self,
@@ -88,11 +93,9 @@ class BernoulliDistribution(Distribution, Fittable):
         **controls: Controls,
     ) -> Results:
         data = self.to_data(variate, weights)
-        theta = np.sum(data.weights * data.variate) / np.sum(data.weights)
+        theta = mean_value(data.weights, data.variate)
         self.set_parameters(theta)
-        score = np.sum(data.weights * self.log_prob(data.variate)) / np.sum(
-            data.weights
-        )
+        score = mean_value(data.weights, self.log_prob(data.variate))
         return {
             "score": score,
             "num_iters": 0,
@@ -102,13 +105,9 @@ class BernoulliDistribution(Distribution, Fittable):
 
 
 #################################################################
-# Bernoulli regrression
+# Bernoulli regression
 
 
-DEFAULT_PHI = np.array([])
-
-
-# @fitting_controls(step_size=0.1)
 class BernoulliRegressor(GradientRegressor):
     """
     Implements optimisation of the regression parameters.
@@ -134,7 +133,7 @@ class BernoulliRegressor(GradientRegressor):
 
 
 @set_regressor(BernoulliRegressor)
-class BernoulliRegression(ConditionalDistribution, Regressable):
+class BernoulliRegression(DelegatedDistribution, Regressable):
     """
     Implements the Bernoulli conditional probability distribution
     for a binary response variate, X, as a linear regression of
@@ -154,38 +153,23 @@ class BernoulliRegression(ConditionalDistribution, Regressable):
         Input:
             - phi (vector): The regression parameter value(s).
         """
-        super().__init__(phi)
+        print("DEBUG[BernoulliRegression]: init")
+        pdf = BernoulliDistribution()
+        super().__init__(pdf, phi)
 
     def is_valid_parameters(self, *params: Values) -> bool:
+        print("DEBUG[BernoulliRegression]: is_valid_parameters")
+        print("DEBUG: params=", params)
         if len(params) != 1:
             return False
         phi = params[0]
+        print("DEBUG: phi=", phi)
         return is_vector(phi) and not is_divergent(phi)
 
-    def inverse_parameters(self, covariates: MatrixLike) -> Values:
-        phi = self.parameters()[0]
-        if len(phi) == 0:
-            raise ValueError("Uninitialised regression parameters!")
-        covs = to_matrix(covariates, n_cols=len(phi))
-        eta = covs @ phi
-        theta = logistic(eta if len(eta) > 1 else eta[0])
+    def inverse_link(self, *link_params: Values) -> Values:
+        eta = link_params[0]
+        theta = logistic(eta)
         return (theta,)
-
-    def mean(self, covariates: MatrixLike) -> Value:
-        theta = self.inverse_parameters(covariates)[0]
-        return theta
-
-    def variance(self, covariates: MatrixLike) -> Value:
-        theta = self.inverse_parameters(covariates)[0]
-        return theta * (1 - theta)
-
-    def log_prob(self, variate: VectorLike, covariates: MatrixLike) -> Value:
-        data = self.to_data(variate, None, covariates)
-        theta = self.inverse_parameters(covariates)[0]
-        log_probs = data.variate * np.log(theta) + (1 - data.variate) * np.log(
-            1 - theta
-        )
-        return log_probs if len(log_probs) > 0 else log_probs[0]
 
 
 ###############################################################################

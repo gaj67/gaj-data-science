@@ -13,11 +13,13 @@ from abc import ABC, abstractmethod
 from .data_types import (
     Value,
     Values,
+    Vector,
     VectorLike,
     MatrixLike,
     is_scalar,
     is_vector,
     is_divergent,
+    to_matrix,
 )
 
 ###############################################################################
@@ -57,6 +59,21 @@ def guard_pos(value: Value) -> Value:
     return value
 
 
+def as_scalar(value: Vector) -> Value:
+    """
+    If possible, converts a singleton vector into a scalar.
+
+    Input:
+        - value (vector): The vector value(s).
+
+    Returns:
+        - value' (flat or vector): The scalar or vector value.
+    """
+    if len(value) == 1:
+        return value[0]
+    return value
+
+
 ###############################################################################
 # Base parameter classes:
 
@@ -85,6 +102,8 @@ class Parameterised(ABC):
         Input:
             - params (tuple of float or ndarray): The parameter value(s).
         """
+        print("DEBUG[Parameterised]: init")
+        print("DEBUG: params=", params)
         if len(params) == 0:
             self.set_parameters(*self.default_parameters())
         else:
@@ -132,39 +151,6 @@ class Parameterised(ABC):
             if is_divergent(value):
                 return False
         return True
-
-
-class Transformable:
-    """
-    Provides an invertable transformation between the default parameterisation
-    and an alternative parameterisation.
-    """
-
-    def transform(self, *params: Values) -> Values:
-        """
-        Transforms the parameter values into an alternative representation.
-
-        Input:
-            - params (tuple of float-like or vector): The parameter values.
-
-        Returns:
-            - alt_params (tuple of float-like or vector): The alternative parameter values.
-        """
-        # By default, assume an identity transformation
-        return params
-
-    def inverse_transform(self, *alt_params: Values) -> Values:
-        """
-        Transforms the alternative parameter values into the usual representation.
-
-        Input:
-            - alt_params (tuple of float-like or vector): The alternative parameter values.
-
-        Returns:
-            - params (tuple of float-like or vector): The parameter values
-        """
-        # By default, assume an identity transformation
-        return alt_params
 
 
 ###############################################################################
@@ -221,7 +207,7 @@ class Distribution(Parameterised):
 
 
 ###############################################################################
-# Base regression class:
+# Base regression classes:
 
 
 class ConditionalDistribution(Parameterised):
@@ -231,13 +217,27 @@ class ConditionalDistribution(Parameterised):
 
     It is always assumed that the regression parameters are bundled
     into the first parameter, which is transformed (using Z) into
-    the dependent parameter of the underlying distribution.
+    the link parameter of the underlying distribution.
     Any subsequent parameters are treated as independent parameters
     of the underlying distribution.
 
     Use an empty array if the number of regression weights is not
     known in advance of data fitting.
     """
+
+    def __init__(self, reg_params: Vector, *indep_params: Values):
+        """
+        Initialises the conditional distribution.
+
+        Input:
+            - reg_params (vector): The value(s) of the regression parameter(s).
+            - indep_params ((tuple of float, optional): The value(s) of
+                the independent parameter(s), if any.
+        """
+        print("DEBUG[ConditionalDistribution]: init")
+        print("DEBUG: phi=", reg_params)
+        print("DEBUG: indep_params=", indep_params)
+        super().__init__(reg_params, *indep_params)
 
     @abstractmethod
     def mean(self, covariates: MatrixLike) -> Value:
@@ -279,20 +279,77 @@ class ConditionalDistribution(Parameterised):
         """
         raise NotImplementedError
 
-    def inverse_parameters(self, covariates: MatrixLike) -> Values:
-        """
-        Computes the value(s) of the distributional parameter(s)
-        given the value(s) of the covariate(s).
 
-        Note: Functionally this computes the link parameter via
-        the regression function and then applies the inverse link
-        function.
+class DelegatedDistribution(ConditionalDistribution):
+    """
+    Implements a conditional distribution by wrapping
+    an unconditional distribution.
+    """
+
+    def __init__(self, pdf: Distribution, *params: Values):
+        """
+        Initialises the conditional distribution.
+
+        Input:
+            - pdf (distribution): The underlying distribution.
+            - params (tuple of vector or floatt, optional): The
+                parameter values of the conditional distribution.
+        """
+        print("DEBUG[DelegatedDistribution]: init")
+        print("DEBUG: pdf=", pdf)
+        print("DEBUG: params=", params)
+        super().__init__(*params)
+        self._pdf = pdf
+
+    def distribution(self) -> Distribution:
+        """
+        Obtains the underlying distribution.
+
+        Returns:
+            - pdf (distribution): The distribution instance.
+        """
+        return self._pdf
+
+    def mean(self, covariates: MatrixLike) -> Value:
+        self.invert_regression(covariates)
+        return self.distribution().mean()
+
+    def variance(self, covariates: MatrixLike) -> Value:
+        self.invert_regression(covariates)
+        return self.distribution().variance()
+
+    def log_prob(self, variate: VectorLike, covariates: MatrixLike) -> Value:
+        self.invert_regression(covariates)
+        return self.distribution().log_prob(variate)
+
+    def invert_regression(self, covariates: MatrixLike):
+        """
+        CComputes the regression function and then inverts the
+        link parameter (and any independent parameters) into parameters
+        of the underlying distribution.
 
         Input:
             - covariates (matrix-like): The covariate value(s).
+        """
+        phi, *psi = self.parameters()
+        if len(phi) == 0:
+            raise ValueError("Uninitialised regression parameters!")
+        covs = to_matrix(covariates, n_cols=len(phi))
+        eta = as_scalar(covs @ phi)
+        print("DEBUG[invert_regression]: eta=", eta)
+        params = self.inverse_link(eta, *psi)
+        self.distribution().set_parameters(*params)
+
+    @abstractmethod
+    def inverse_link(self, *link_params: Values) -> Values:
+        """
+        Inverts the link function to map the link parameter and any independent
+        parameters into the corresponding distributional parameters.
+
+        Input:
+            - link_params (tuple of float or vector): The conditional parameter values.
 
         Returns:
-            - params (tuple of float or vector): The values(s)
-                of the distributional parameter(s).
+            - inv_params (tuple of float or vector): The distributional parameter values.
         """
         raise NotImplementedError

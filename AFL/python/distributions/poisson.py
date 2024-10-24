@@ -10,9 +10,10 @@ from typing import Optional
 import numpy as np
 from scipy.special import gamma
 
-import imptools
+if __name__ == "__main__":
+    import imptools
 
-imptools.enable_relative()
+    imptools.enable_relative()
 
 
 from .core.data_types import (
@@ -20,18 +21,16 @@ from .core.data_types import (
     Values,
     Vector,
     VectorLike,
-    MatrixLike,
     is_divergent,
-    to_matrix,
     is_vector,
     to_vector,
     mean_value,
 )
 
-from .core.distribution import Distribution, ConditionalDistribution, guard_pos
-from .core.optimiser import Data, Controls, Results  # , fitting_controls
+from .core.distribution import Distribution, DelegatedDistribution, guard_pos
+from .core.optimiser import Data, Controls, Results
 from .core.fitter import Fittable
-from .core.regressor import Regressable, GradientRegressor, set_regressor
+from .core.regressor import Regressable, GradientRegressor, set_regressor, DEFAULT_PHI
 
 
 DEFAULT_LAMBDA = 1.0
@@ -101,13 +100,9 @@ class PoissonDistribution(Distribution, Fittable):
 
 
 #################################################################
-# Poisson regrression
+# Poisson regression
 
 
-DEFAULT_PHI = np.array([])
-
-
-# @fitting_controls(step_size=0.1)
 class PoissonRegressor(GradientRegressor):
     """
     Implements optimisation of the regression parameters.
@@ -120,7 +115,7 @@ class PoissonRegressor(GradientRegressor):
         print("DEBUG[estimate_parameters]: n_cols=", n_cols)
         scale = 1e-8 / n_cols
         phi = (np.random.uniform(size=n_cols) - 0.5) * scale
-        phi =  np.zeros(n_cols)
+        phi = np.zeros(n_cols)
         print("DEBUG[estimate_parameters]: phi =", phi)
         return (phi,)
 
@@ -138,7 +133,7 @@ class PoissonRegressor(GradientRegressor):
 
 
 @set_regressor(PoissonRegressor)
-class PoissonRegression(ConditionalDistribution, Regressable):
+class PoissonRegression(DelegatedDistribution, Regressable):
     """
     Implements the Poisson conditional probability distribution
     for a binary response variate, X, as a linear regression of
@@ -158,7 +153,8 @@ class PoissonRegression(ConditionalDistribution, Regressable):
         Input:
             - phi (vector): The regression parameter value(s).
         """
-        super().__init__(phi)
+        pdf = PoissonDistribution()
+        super().__init__(pdf, phi)
 
     def is_valid_parameters(self, *params: Values) -> bool:
         print("DEBUG: params =", params)
@@ -167,28 +163,10 @@ class PoissonRegression(ConditionalDistribution, Regressable):
         phi = params[0]
         return is_vector(phi) and not is_divergent(phi)
 
-    def inverse_parameters(self, covariates: MatrixLike) -> Values:
-        phi = self.parameters()[0]
-        if len(phi) == 0:
-            raise ValueError("Uninitialised regression parameters!")
-        covs = to_matrix(covariates, n_cols=len(phi))
-        eta = covs @ phi
-        _lambda = np.exp(eta if len(eta) > 1 else eta[0])
+    def inverse_link(self, *link_params: Values) -> Values:
+        eta = link_params[0]
+        _lambda = np.exp(eta)
         return (_lambda,)
-
-    def mean(self, covariates: MatrixLike) -> Value:
-        _lambda = self.inverse_parameters(covariates)[0]
-        return _lambda
-
-    def variance(self, covariates: MatrixLike) -> Value:
-        _lambda = self.inverse_parameters(covariates)[0]
-        return _lambda
-
-    def log_prob(self, variate: VectorLike, covariates: MatrixLike) -> Value:
-        data = self.to_data(variate, None, covariates)
-        _lambda = self.inverse_parameters(covariates)[0]
-        ln_p = data.variate * np.log(_lambda) - _lambda - np.log(gamma(data.variate + 1))
-        return ln_p if len(ln_p) > 1 else ln_p[0]
 
 
 ###############################################################################
@@ -234,7 +212,7 @@ if __name__ == "__main__":
     # Test fitting two groups of multiple observations
     Xp1 = [1, 2, 3, 1, 0, 0, 5, 4, 1, 0]
     Zp1 = [1] * len(Xp1)
-    Xm1 = np.array(Xp1) / np.mean(Xp1)**2
+    Xm1 = np.array(Xp1) / np.mean(Xp1) ** 2
     Zm1 = [-1] * len(Xm1)
     X = np.concat((Xp1, Xm1))
     Z = np.concat((Zp1, Zm1))

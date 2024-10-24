@@ -26,6 +26,10 @@ from .distribution import Parameterised
 from .optimiser import Optimiser, Data, Controls, Results, GradientOptimiser
 
 
+# Indicates that the regression parameters are unset and require fitting.
+DEFAULT_PHI = np.array([])
+
+
 ###############################################################################
 # Base class for regression:
 

@@ -6,172 +6,143 @@ It is assumed that some parameterised objective function will be optimised.
 """
 
 from abc import abstractmethod
-from typing import Optional, Type, Callable
+from typing import Optional
 
 import numpy as np
 from numpy.linalg import solve
 
 from .data_types import (
+    Value,
+    Values,
+    Vector,
     VectorLike,
     MatrixLike,
-    Values,
     to_vector,
     to_matrix,
+    as_value,
     mean_value,
     mean_values,
     values_to_matrix,
 )
 
-from .distribution import Parameterised
-from .optimiser import Optimiser, Data, Controls, Results, GradientOptimiser
+from .parameterised import Parameterised
+from .controllable import Controls
+from .estimator import Estimator, Data, Results, Differentiable
 
 
-# Indicates that the regression parameters are unset and require fitting.
-DEFAULT_PHI = np.array([])
+# Indicates that thee regression weights have not yet been specified
+UNSPECIFIED_REGRESSION = np.array([])
 
 
 ###############################################################################
-# Base class for regression:
-
-# NOTE: Don't make Regressable subclass ABC otherwise overriding fit() method
-# via @add_regressor() doesn't remove the abstraction.
+# Base class for the regression parameterisation:
 
 
-class Regressable:
+class Regression(Parameterised):
     """
-    Provides an interface for estimating parameters from observed
-    variate and covariate data.
-
-    Assumes the underlying implementation subclasses Parameterised,
-    and that the first parameter specifies the vector of regression
-    weights.
+    Indicates the use of a parameterised regression function of the covariates, Z.
     """
 
-    @abstractmethod
-    def fit(
-        self,
-        variate: VectorLike,
-        covariates: MatrixLike,
-        weights: Optional[VectorLike] = None,
-        **controls: Controls,
-    ) -> Results:
+    def __init__(self, reg_params: Vector, *indep_params: Values):
         """
-        Estimates parameters from the given observation(s).
+        Initialises the regression parameters.
 
-        Inputs:
-            - variate (vector-like): The value(s) of the variate.
-            - covariates (matrix-like): The value(s) of the covariate(s).
-            - weights (vector-like, optional): The weight(s) of the data.
-            - controls (dict): The user-specified controls.
-                See Optimiser.default_controls().
+        Use the UNSPECIFIED_REGRESSION constant to indicate that the regression
+        parameters are unknown, and need to be set or estimated.
+
+        Input:
+            - reg_params (vector): The value(s) of the regression parameter(s).
+            - indep_params (tuple of float, optional): The value(s) of the
+                independent parameter(s), if any.
+        """
+        super().__init__(reg_params, *indep_params)
+
+    def regression_parameters(self) -> Vector:
+        """
+        Obtains the regression parameters.
 
         Returns:
-            - results (dict): The summary output. See Optimiser.optimise_parameters().
+            - reg_params (vector): The value(s) of the regression parameter(s).
+        """
+        return self.parameters()[0]
+
+    def independent_parameters(self) -> Values:
+        """
+        Obtains the independent parameters.
+
+        Returns:
+            - indep_params (tuple of float): The value(s) of the independent
+                parameter(s), if any.
+        """
+        return self.parameters()[1:]
+
+    def apply_regression(self, covariates: MatrixLike) -> Value:
+        """
+        Computes the regression function to obtain the link parameter.
+
+        Input:
+            - covariates (matrix-like): The covariate value(s).
+
+        Returns:
+            - link_param (float or vector): The value(s) of the link parameeter.
+        """
+        phi = self.regression_parameters()
+        if len(phi) == 0:
+            raise ValueError("Uninitialised regression parameters!")
+        covs = to_matrix(covariates, n_cols=len(phi))
+        eta = as_value(covs @ phi)
+        return eta
+
+    @abstractmethod
+    def invert_link(self, *link_params: Values) -> Values:
+        """
+        Inverts the link function to map the link parameter and any independent
+        parameters into the corresponding distributional parameters.
+
+        Input:
+            - link_params (tuple of float or vector): The value(s) of the link
+                parameter, along with the value(s) of the independent parameter(s),
+                if any.
+
+        Returns:
+            - inv_params (tuple of float or vector): The values(s) of the
+                distributional parameter(s).
         """
         raise NotImplementedError
 
-    def to_data(
+
+###############################################################################
+# Base class for estimating the regression parameters:
+
+
+class RegressionEstimator(Estimator):
+    """
+    Estimates the regression parameters and independent parameters, either via a
+    closed-form solution or via iterative optimisation of an objective function.
+    """
+
+    def estimate_parameters(
         self,
-        variate: VectorLike,
-        covariates: MatrixLike,
-        weights: Optional[VectorLike] = None,
-    ) -> Data:
-        """
-        Bundles the observational data into standard format.
+        data: Data,
+        **controls: Controls,
+    ) -> Results:
+        if not isinstance(self, Regression):
+            raise ValueError("Instance is not a regression!")
 
-        Inputs:
-            - variate (vector-like): The value(s) of the variate.
-            - covariates (matrix-like): The value(s) of the covariate(s).
-            - weights (vector-like, optional): The weight(s) of the data.
-
-        Returns:
-            - data (tuple of data): The bundled data.
-        """
-        # Allow for single or multiple observations, with or without weights
-        v_data = to_vector(variate)
-        n_rows = len(v_data)
-        if weights is None:
-            v_weights = np.ones(n_rows)
-        else:
-            v_weights = to_vector(weights, n_rows)
-        if isinstance(self, Parameterised):  # Should be true!
-            phi = self.parameters()[0]
-            n_cols = len(phi) if len(phi) > 0 else -1
-        else:
-            n_cols = -1
-        m_covariates = to_matrix(covariates, n_rows, n_cols)
-
-        return Data(v_data, v_weights, m_covariates)
-
-
-###############################################################################
-# Class decorators:
-
-
-# Decorator for easily adding an optimiser implementation
-def set_regressor(
-    fitter_class: Type[Optimiser],
-) -> Callable[[Type[Regressable]], Type[Regressable]]:
-    """
-    Implements the fit() method to wrap the distribution
-    with an instance of the specified optimiser.
-
-    Input:
-        - fitter_class (class): The class of an optimiser implementation.
-
-    Returns:
-        - decorator (method): A decorator of a fittable and parameterised class.
-
-    """
-
-    def decorator(klass: Type[Regressable]) -> Type[Regressable]:
-
-        if not (issubclass(klass, Parameterised) and issubclass(klass, Regressable)):
-            raise ValueError("Class must be Parameterised & Regressable!")
-
-        def fit(
-            self,  # Parameterised & Regressable
-            variate: VectorLike,
-            weights: Optional[VectorLike] = None,
-            **controls: Controls,
-        ) -> Results:
-            data = self.to_data(variate, weights)
-            return fitter_class(self).fit(data, **controls)
-
-        klass.fit = fit
-        klass.fit.__doc__ = Regressable.fit.__doc__
-        return klass
-
-    return decorator
-
-
-###############################################################################
-# Abstract implementation of regression:
-
-
-class GradientRegressor(GradientOptimiser):
-    """
-    Estimates the parameters of a supplied conditional distribution
-    via iterative optimisation of an objective function.
-
-    NOTE: The high-level computation of the score and update is with
-    respect to the regression parameters and the independent parameters.
-
-    However, the low-level computation of scores and derivatives is with
-    respect to the dependent parameter and the independent parameters.
-    """
+        return super().estimate_parameters(data, **controls)
 
     def compute_score(self, params: Values, data: Data, controls: Controls) -> float:
         phi, *psi = params
-        print("DEBUG[compute_score]: phi =", phi)
         eta = data.covariates @ phi
-        print("DEBUG[compute_score]: eta =", eta)
         alt_params = eta, *psi
         scores = self.compute_scores(alt_params, data.variate)
-        print("DEBUG[compute_score]: scores =", scores)
+        print("DEBUG[compute_score]: score=", mean_value(data.weights, scores))
         return mean_value(data.weights, scores)
 
     def compute_update(self, params: Values, data: Data, controls: Controls) -> Values:
+        if not isinstance(self, Differentiable):
+            raise NotImplementedError("Non-gradient update is not implemented!")
+
         phi, *psi = params
         eta = data.covariates @ phi
         alt_params = eta, *psi
@@ -181,9 +152,11 @@ class GradientRegressor(GradientOptimiser):
         g_phi = (data.weights * g_eta) @ data.covariates / tot_weights
         if len(g_psi) > 0:
             g_psi = mean_values(data.weights, g_psi)
+
         n_hess = self.compute_neg_hessian(alt_params, data.variate)
         if len(n_hess) == 0:
             # No second derivatives, just use gradient
+            print("DEBUG[compute_update]: g_phi=", g_phi, "g_psi=", g_psi)
             return g_phi, *g_psi
 
         # Expected value of negative Hessian of log-likelihood gives:
@@ -243,3 +216,73 @@ class GradientRegressor(GradientOptimiser):
         # Inversion step 4: d_phi = d_phi' - v_phi^-1 * cov^T * d_psi
         d_phi -= solve(v_phi, d_psi @ cov)
         return d_phi, *d_psi
+
+
+###############################################################################
+# Simple data  fitter:
+
+
+class Fittable(RegressionEstimator):
+    """
+    Provides an interface for estimating parameters from observed
+    variate and covariate data.
+
+    Assumes the underlying implementation is a regression, and that
+    the first parameter specifies the vector of regression weights.
+    """
+
+    def fit(
+        self,
+        variate: VectorLike,
+        covariates: MatrixLike,
+        weights: Optional[VectorLike] = None,
+        **controls: Controls,
+    ) -> Results:
+        """
+        Estimates parameters from the given observation(s).
+
+        Inputs:
+            - variate (vector-like): The value(s) of the variate.
+            - covariates (matrix-like): The value(s) of the covariate(s).
+            - weights (vector-like, optional): The weight(s) of the data.
+            - controls (dict): The user-specified controls.
+                See Optimiser.default_controls().
+
+        Returns:
+            - results (dict): The summary output. See Optimiser.optimise_parameters().
+        """
+        data = self.to_data(variate, covariates, weights)
+        return self.estimate_parameters(data, **controls)
+
+    def to_data(
+        self,
+        variate: VectorLike,
+        covariates: MatrixLike,
+        weights: Optional[VectorLike] = None,
+    ) -> Data:
+        """
+        Bundles the observational data into standard format.
+
+        Inputs:
+            - variate (vector-like): The value(s) of the variate.
+            - covariates (matrix-like): The value(s) of the covariate(s).
+            - weights (vector-like, optional): The weight(s) of the data.
+
+        Returns:
+            - data (tuple of data): The bundled data.
+        """
+        # Allow for single or multiple observations, with or without weights
+        v_data = to_vector(variate)
+        n_rows = len(v_data)
+        if weights is None:
+            v_weights = np.ones(n_rows)
+        else:
+            v_weights = to_vector(weights, n_rows)
+        if isinstance(self, Regression):  # Should be true!
+            phi = self.regression_parameters()
+            n_cols = len(phi) if len(phi) > 0 else -1
+        else:
+            n_cols = -1
+        m_covariates = to_matrix(covariates, n_rows, n_cols)
+
+        return Data(v_data, v_weights, m_covariates)

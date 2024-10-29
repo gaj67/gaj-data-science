@@ -8,7 +8,7 @@ a scalar value or a vector of values (see the Value type).
 Covariates may also be a matrix.
 """
 
-from typing import TypeAlias, Union, Tuple, Any, Dict, NamedTuple, Optional
+from typing import TypeAlias, Union, Tuple, Any
 from numpy.typing import NDArray, ArrayLike
 from numpy import ndarray
 

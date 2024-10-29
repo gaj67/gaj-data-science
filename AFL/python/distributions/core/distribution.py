@@ -10,13 +10,17 @@ from abc import ABC, abstractmethod
 
 from .data_types import (
     Value,
+    Values,
+    Vector,
     VectorLike,
     MatrixLike,
 )
 
+from .regressor import Regression
+
 
 ###############################################################################
-# Base distribution class:
+# Base distribution classes:
 
 
 class Distribution(ABC):
@@ -64,7 +68,7 @@ class Distribution(ABC):
 
 
 ###############################################################################
-# Base regression classes:
+# Base conditional distribution class:
 
 
 class ConditionalDistribution(ABC):
@@ -116,3 +120,64 @@ class ConditionalDistribution(ABC):
             - log_prob (float or vector): The log-likelihood(s).
         """
         raise NotImplementedError
+
+
+###############################################################################
+# Base regression distribution class:
+
+
+class RegressionDistribution(Regression, ConditionalDistribution):
+    """
+    Implements a conditional distribution using regression to compute
+    the parameters of an underlying multi-distribution.
+    """
+
+    def __init__(self, pdf: Distribution, reg_params: Vector, *indep_params: Values):
+        """
+        Initialises the conditional distribution.
+
+        Use the UNSPECIFIED_REGRESSION constant to indicate that the regression
+        parameters are unknown, and need to be set or estimated.
+
+        Input:
+            - pdf (distribution): The underlying probability distribution.
+            - reg_params (vector): The value(s) of the regression parameter(s).
+            - indep_params (tuple of float, optional): The value(s) of the
+                independent parameter(s), if any.
+        """
+        super().__init__(reg_params, *indep_params)
+        self._pdf = pdf
+
+    def distribution(self) -> Distribution:
+        """
+        Obtains the underlying distribution.
+
+        Returns:
+            - pdf (distribution): The distribution instance.
+        """
+        return self._pdf
+
+    def mean(self, covariates: MatrixLike) -> Value:
+        self.invert_regression(covariates)
+        return self.distribution().mean()
+
+    def variance(self, covariates: MatrixLike) -> Value:
+        self.invert_regression(covariates)
+        return self.distribution().variance()
+
+    def log_prob(self, variate: VectorLike, covariates: MatrixLike) -> Value:
+        self.invert_regression(covariates)
+        return self.distribution().log_prob(variate)
+
+    def invert_regression(self, covariates: MatrixLike) -> Values:
+        """
+        Computes the regression function and then inverts the
+        link parameter (and any independent parameters) into parameters
+        of the underlying distribution.
+
+        Input:
+            - covariates (matrix-like): The covariate value(s).
+        """
+        link_param = self.apply_regression(covariates)
+        params = self.invert_link(link_param, *self.independent_parameters())
+        self.distribution().set_parameters(*params)

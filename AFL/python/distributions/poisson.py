@@ -8,6 +8,7 @@ The link parameter is the natural parameter, eta = log(lambda).
 from typing import Optional
 
 import numpy as np
+from numpy.linalg import solve
 from scipy.special import gamma
 
 if __name__ == "__main__":
@@ -19,18 +20,26 @@ if __name__ == "__main__":
 from .core.data_types import (
     Value,
     Values,
+    Values2d,
     Vector,
     VectorLike,
     is_divergent,
     is_vector,
     to_vector,
+    as_value,
     mean_value,
 )
 
-from .core.distribution import Distribution, DelegatedDistribution, guard_pos
-from .core.optimiser import Data, Controls, Results
-from .core.fitter import Fittable
-from .core.regressor import Regressable, GradientRegressor, set_regressor, DEFAULT_PHI
+from .core.parameterised import Parameterised, guard_pos
+
+from .core.distribution import (
+    Distribution,
+    RegressionDistribution,
+)
+
+from .core.controllable import Controls, set_controls
+from .core.estimator import Fittable, Data, Differentiable
+from .core.regressor import Fittable as Regressable, UNSPECIFIED_REGRESSION
 
 
 DEFAULT_LAMBDA = 1.0
@@ -40,13 +49,21 @@ DEFAULT_LAMBDA = 1.0
 # Poisson distribution
 
 
-class PoissonDistribution(Distribution, Fittable):
+@set_controls(max_iters=0)
+class PoissonDistribution(Parameterised, Distribution, Fittable):
     """
     Implements the Poisson probability distribution for a binary
     response variate, X.
 
     The sole parameter, _lambda, governs the probability that X=1.
     """
+
+    # -----------------------
+    # Parameterised interface
+
+    @staticmethod
+    def default_parameters() -> Values:
+        return (DEFAULT_LAMBDA,)
 
     def __init__(self, _lambda: Value = DEFAULT_LAMBDA):
         """
@@ -57,15 +74,14 @@ class PoissonDistribution(Distribution, Fittable):
         """
         super().__init__(_lambda)
 
-    @staticmethod
-    def default_parameters() -> Values:
-        return (DEFAULT_LAMBDA,)
-
     def is_valid_parameters(self, *params: Values) -> bool:
         if len(params) != 1:
             return False
         _lambda = params[0]
         return not is_divergent(_lambda) and np.all(_lambda >= 0)
+
+    # ----------------------
+    # Distribution interface
 
     def mean(self) -> Value:
         _lambda = self.parameters()[0]
@@ -76,64 +92,26 @@ class PoissonDistribution(Distribution, Fittable):
         return _lambda
 
     def log_prob(self, variate: VectorLike) -> Value:
-        _lambda = guard_pos(self.parameters()[0])
         v_data = to_vector(variate)
-        ln_p = v_data * np.log(_lambda) - _lambda - np.log(gamma(v_data + 1))
-        return ln_p if len(ln_p) > 1 else ln_p[0]
+        return as_value(self.compute_scores(self.parameters(), v_data))
 
-    def fit(
-        self,
-        variate: VectorLike,
-        weights: Optional[VectorLike] = None,
-        **controls: Controls,
-    ) -> Results:
-        data = self.to_data(variate, weights)
+    # ------------------
+    # Fittable interface
+
+    def initialise_parameters(self, data: Data, controls: Controls) -> Values:
         _lambda = mean_value(data.weights, data.variate)
-        self.set_parameters(_lambda)
-        score = mean_value(data.weights, self.log_prob(data.variate))
-        return {
-            "score": score,
-            "num_iters": 0,
-            "score_tol": 0.0,
-            "converged": True,
-        }
+        return (_lambda,)
+
+    def compute_scores(self, params: Values, variate: Vector) -> Vector:
+        _lambda = guard_pos(params[0])
+        return variate * np.log(_lambda) - _lambda - np.log(gamma(variate + 1))
 
 
 #################################################################
 # Poisson regression
 
 
-class PoissonRegressor(GradientRegressor):
-    """
-    Implements optimisation of the regression parameters.
-
-    Note: Scores and derivatives are with respeect to eta.
-    """
-
-    def estimate_parameters(self, data: Data, controls: Controls) -> Values:
-        n_cols = data.covariates.shape[1]
-        print("DEBUG[estimate_parameters]: n_cols=", n_cols)
-        scale = 1e-8 / n_cols
-        phi = (np.random.uniform(size=n_cols) - 0.5) * scale
-        phi = np.zeros(n_cols)
-        print("DEBUG[estimate_parameters]: phi =", phi)
-        return (phi,)
-
-    def compute_scores(self, params: Values, variate: Vector) -> Vector:
-        eta = params[0]
-        print("DEBUG[compute_scores]: eta =", eta)
-        _lambda = np.exp(eta)
-        print("DEBUG[compute_scores]: _lambda =", _lambda)
-        print("DEBUG[compute_scores]: variate =", variate)
-        return variate * eta - _lambda - np.log(gamma(variate + 1))
-
-    def compute_gradients(self, params: Values, variate: Vector) -> Values:
-        _lambda = np.exp(params[0])
-        return (variate - _lambda,)
-
-
-@set_regressor(PoissonRegressor)
-class PoissonRegression(DelegatedDistribution, Regressable):
+class PoissonRegression(RegressionDistribution, Regressable, Differentiable):
     """
     Implements the Poisson conditional probability distribution
     for a binary response variate, X, as a linear regression of
@@ -142,11 +120,14 @@ class PoissonRegression(DelegatedDistribution, Regressable):
     The link parameter is eta = log(lambda).
     """
 
+    # --------------------------------
+    # Parameterised interface
+
     @staticmethod
     def default_parameters() -> Values:
-        return (DEFAULT_PHI,)
+        return (UNSPECIFIED_REGRESSION,)
 
-    def __init__(self, phi: Vector = DEFAULT_PHI):
+    def __init__(self, phi: Vector = UNSPECIFIED_REGRESSION):
         """
         Initialises the conditional Poisson distribution.
 
@@ -157,16 +138,46 @@ class PoissonRegression(DelegatedDistribution, Regressable):
         super().__init__(pdf, phi)
 
     def is_valid_parameters(self, *params: Values) -> bool:
-        print("DEBUG: params =", params)
         if len(params) != 1:
             return False
         phi = params[0]
         return is_vector(phi) and not is_divergent(phi)
 
-    def inverse_link(self, *link_params: Values) -> Values:
-        eta = link_params[0]
-        _lambda = np.exp(eta)
+    # --------------------
+    # Regression interface
+
+    def invert_link(self, *link_params: Values) -> Values:
+        _lambda = np.exp(link_params[0])
         return (_lambda,)
+
+    # ---------------------
+    # Estimator interface
+
+    def initialise_parameters(self, data: Data, controls: Controls) -> Values:
+        ind = data.variate > 0
+        if np.any(ind):
+            eta = np.log(data.variate[ind])
+            Z = data.covariates[ind, :]
+            phi = solve(Z.T @ Z, Z.T @ eta)
+        else:
+            phi = np.zeros(data.covariates.shape[1])
+        return (phi,)
+
+    def compute_scores(self, params: Values, variate: Vector) -> Vector:
+        u_params = self.invert_link(*params)
+        return self.distribution().compute_scores(u_params, variate)
+
+    # ------------------------
+    # Differentiable interface
+
+    def compute_gradients(self, params: Values, variate: Vector) -> Values:
+        # grad = dL/d eta NOT dL/d lambda
+        _lambda = self.invert_link(*params)[0]
+        return (variate - _lambda,)
+
+    def compute_neg_hessian(self, params: Values, variate: Vector) -> Values2d:
+        _lambda = self.invert_link(*params)[0]
+        return ((_lambda,),)
 
 
 ###############################################################################
@@ -206,7 +217,7 @@ if __name__ == "__main__":
 
     # Test default parameter
     pr = PoissonRegression()
-    assert pr.parameters() == (DEFAULT_PHI,)
+    assert pr.parameters() == (UNSPECIFIED_REGRESSION,)
     print("Passed default regression parameter tests!")
 
     # Test fitting two groups of multiple observations
@@ -224,14 +235,13 @@ if __name__ == "__main__":
     assert np.abs(mu_m1 - np.mean(Xm1)) < 1e-6
     print("Passed fitting grouped observations tests!")
 
-    print("DEBUG: ***********************************")
     pr = PoissonRegression()
     Zp1 = [(1, 1)] * len(Xp1)
     Zm1 = [(1, -1)] * len(Xm1)
     Z = np.concat((Zp1, Zm1))
     res = pr.fit(X, Z, score_tol=1e-12)
     assert res["converged"]
-    assert np.abs(pr.parameters()[0][0]) < 1e-6
+    assert np.abs(pr.regression_parameters()[0]) < 1e-6
     mu_p1 = pr.mean([1, 1])
     assert np.abs(mu_p1 - np.mean(Xp1)) < 1e-5
     mu_m1 = pr.mean([1, -1])

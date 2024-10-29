@@ -5,8 +5,6 @@ The distributional parameter, theta, is also the mean, mu.
 The link parameter is the natural parameter, eta = logit(theta).
 """
 
-from typing import Optional
-
 import numpy as np
 from scipy.special import expit as logistic
 
@@ -19,23 +17,26 @@ if __name__ == "__main__":
 from .core.data_types import (
     Value,
     Values,
+    Values2d,
     Vector,
     VectorLike,
     is_divergent,
     is_vector,
     to_vector,
+    as_value,
     mean_value,
 )
 
+from .core.parameterised import Parameterised, guard_prob
+
 from .core.distribution import (
     Distribution,
-    DelegatedDistribution,
-    guard_prob,
-    as_scalar,
+    RegressionDistribution,
 )
-from .core.optimiser import Data, Controls, Results
-from .core.fitter import Fittable
-from .core.regressor import Regressable, GradientRegressor, set_regressor, DEFAULT_PHI
+
+from .core.controllable import Controls, set_controls
+from .core.estimator import Fittable, Data, Differentiable
+from .core.regressor import Fittable as Regressable, UNSPECIFIED_REGRESSION
 
 
 DEFAULT_THETA = 0.5
@@ -45,13 +46,21 @@ DEFAULT_THETA = 0.5
 # Bernoulli distribution
 
 
-class BernoulliDistribution(Distribution, Fittable):
+@set_controls(max_iters=0)
+class BernoulliDistribution(Parameterised, Distribution, Fittable):
     """
     Implements the Bernoulli probability distribution for a binary
     response variate, X.
 
     The sole parameter, theta, governs the probability that X=1.
     """
+
+    # -----------------------
+    # Parameterised interface
+
+    @staticmethod
+    def default_parameters() -> Values:
+        return (DEFAULT_THETA,)
 
     def __init__(self, theta: Value = DEFAULT_THETA):
         """
@@ -62,15 +71,14 @@ class BernoulliDistribution(Distribution, Fittable):
         """
         super().__init__(theta)
 
-    @staticmethod
-    def default_parameters() -> Values:
-        return (DEFAULT_THETA,)
-
     def is_valid_parameters(self, *params: Values) -> bool:
         if len(params) != 1:
             return False
         theta = params[0]
         return not is_divergent(theta) and np.all(theta >= 0) and np.all(theta <= 1)
+
+    # ----------------------
+    # Distribution interface
 
     def mean(self) -> Value:
         theta = self.parameters()[0]
@@ -81,59 +89,26 @@ class BernoulliDistribution(Distribution, Fittable):
         return theta * (1 - theta)
 
     def log_prob(self, variate: VectorLike) -> Value:
-        theta = guard_prob(self.parameters()[0])
         v_data = to_vector(variate)
-        ln_p = v_data * np.log(theta) + (1 - v_data) * np.log(1 - theta)
-        return as_scalar(ln_p)
+        return as_value(self.compute_scores(self.parameters(), v_data))
 
-    def fit(
-        self,
-        variate: VectorLike,
-        weights: Optional[VectorLike] = None,
-        **controls: Controls,
-    ) -> Results:
-        data = self.to_data(variate, weights)
+    # ------------------
+    # Fittable interface
+
+    def initialise_parameters(self, data: Data, controls: Controls) -> Values:
         theta = mean_value(data.weights, data.variate)
-        self.set_parameters(theta)
-        score = mean_value(data.weights, self.log_prob(data.variate))
-        return {
-            "score": score,
-            "num_iters": 0,
-            "score_tol": 0.0,
-            "converged": True,
-        }
+        return (theta,)
+
+    def compute_scores(self, params: Values, variate: Vector) -> Vector:
+        theta = guard_prob(params[0])
+        return variate * np.log(theta) + (1 - variate) * np.log(1 - theta)
 
 
 #################################################################
 # Bernoulli regression
 
 
-class BernoulliRegressor(GradientRegressor):
-    """
-    Implements optimisation of the regression parameters.
-
-    Note: Scores and derivatives are with respeect to eta.
-    """
-
-    def estimate_parameters(self, data: Data, controls: Controls) -> Values:
-        phi = np.zeros(data.covariates.shape[1])
-        return (phi,)
-
-    def compute_scores(self, params: Values, variate: Vector) -> Vector:
-        eta = params[0]
-        print("DEBUG[compute_scores]: eta =", eta)
-        theta = logistic(eta)
-        print("DEBUG[compute_scores]: theta =", theta)
-        print("DEBUG[compute_scores]: variate =", variate)
-        return variate * eta + np.log(1 - theta)
-
-    def compute_gradients(self, params: Values, variate: Vector) -> Values:
-        theta = logistic(params[0])
-        return (variate - theta,)
-
-
-@set_regressor(BernoulliRegressor)
-class BernoulliRegression(DelegatedDistribution, Regressable):
+class BernoulliRegression(RegressionDistribution, Regressable, Differentiable):
     """
     Implements the Bernoulli conditional probability distribution
     for a binary response variate, X, as a linear regression of
@@ -142,34 +117,55 @@ class BernoulliRegression(DelegatedDistribution, Regressable):
     The natural parameter is eta = logit(theta) with natural variate X.
     """
 
+    # --------------------------------
+    # RegressionDistribution interface
+
     @staticmethod
     def default_parameters() -> Values:
-        return (DEFAULT_PHI,)
+        return (UNSPECIFIED_REGRESSION,)
 
-    def __init__(self, phi: Vector = DEFAULT_PHI):
+    def __init__(self, phi: Vector = UNSPECIFIED_REGRESSION):
         """
         Initialises the conditional Bernoulli distribution.
 
         Input:
             - phi (vector): The regression parameter value(s).
         """
-        print("DEBUG[BernoulliRegression]: init")
         pdf = BernoulliDistribution()
         super().__init__(pdf, phi)
 
     def is_valid_parameters(self, *params: Values) -> bool:
-        print("DEBUG[BernoulliRegression]: is_valid_parameters")
-        print("DEBUG: params=", params)
         if len(params) != 1:
             return False
         phi = params[0]
-        print("DEBUG: phi=", phi)
         return is_vector(phi) and not is_divergent(phi)
 
-    def inverse_link(self, *link_params: Values) -> Values:
-        eta = link_params[0]
-        theta = logistic(eta)
+    def invert_link(self, *link_params: Values) -> Values:
+        theta = logistic(link_params[0])
         return (theta,)
+
+    # ---------------------
+    # Regressable interface
+
+    def initialise_parameters(self, data: Data, controls: Controls) -> Values:
+        phi = np.zeros(data.covariates.shape[1])
+        return (phi,)
+
+    def compute_scores(self, params: Values, variate: Vector) -> Vector:
+        u_params = self.invert_link(*params)
+        return self.distribution().compute_scores(u_params, variate)
+
+    # ------------------------
+    # Differentiable interface
+
+    def compute_gradients(self, params: Values, variate: Vector) -> Values:
+        # grad = dL/d eta NOT dL/d theta
+        theta = self.invert_link(*params)[0]
+        return (variate - theta,)
+
+    def compute_neg_hessian(self, params: Values, variate: Vector) -> Values2d:
+        theta = self.invert_link(*params)[0]
+        return ((theta * (1 - theta),),)
 
 
 ###############################################################################
@@ -214,7 +210,7 @@ if __name__ == "__main__":
 
     # Test default parameter
     br = BernoulliRegression()
-    assert br.parameters() == (DEFAULT_PHI,)
+    assert br.parameters() == (UNSPECIFIED_REGRESSION,)
     print("Passed default regression parameter tests!")
 
     # Test fitting two groups of multiple observations

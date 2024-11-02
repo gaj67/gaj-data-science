@@ -226,7 +226,7 @@ def as_value(value: Vector) -> Value:
         - value (vector): The vector value(s).
 
     Returns:
-        - value' (flat or vector): The scalar or vector value.
+        - value' (float or vector): The scalar or vector value.
     """
     return value[0] if len(value) == 1 else value
 
@@ -257,3 +257,33 @@ def mean_values(weights: Vector, values: Values) -> Vector:
         - means (ndarray): The vector of value means.
     """
     return (weights @ values_to_matrix(values, len(weights))) / np.sum(weights)
+
+
+def mult_rmat_vec(mat: Values2d, vec: Values) -> Values:
+    """
+    Multiplies each row of a matrix-like by a vector-like,
+    i.e. computes X @ y.
+
+    Input:
+        - mat (matrix-like of scalar or vector): The matrix.
+        - vec (tuple of scalar or vector): The vector.
+
+    Returns:
+        - vec' (tuple of float or vector): The vector result.
+    """
+    return tuple(sum(x * y for x, y in zip(row, vec)) for row in mat)
+
+
+def mult_rmat_rmat(mat1: Values2d, mat2: Values2d) -> Values2d:
+    """
+    Multiplies the rows of the first matrix-like by the rows
+    of the second matrix-like, i.e. computes X @ Y.T.
+
+    Input:
+        - mat1 (matrix-like of scalar or vector): The left matrix.
+        - mat2 (matrix-like of scalar or vector): The right matrix.
+
+    Returns:
+        - mat (matrix-like of float or vector): The matrix result.
+    """
+    return tuple(mult_rmat_vec(mat2, row) for row in mat1)

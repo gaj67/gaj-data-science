@@ -251,6 +251,7 @@ class Optimiser:
         while num_iters < controls.get("max_iters", 0):
             # Obtain update
             d_params = p.compute_update(data, controls)
+            print("DEBUG[optimiser]: d_params=", d_params)
             if len(d_params) == 0:
                 # No update available!
                 break
@@ -259,16 +260,19 @@ class Optimiser:
             num_iters += 1
             step_size = controls.get("step_size", 1.0)
             params = p.parameters()
+            print("DEBUG[optimiser]: params=", params)
             for _ in range(controls.get("step_iters", 5)):
                 # Apply update
                 new_params = tuple(v + step_size * d for v, d in zip(params, d_params))
+                print("DEBUG[optimiser]: new_params=", new_params)
+                print("DEBUG[optimiser]: valid=", p.is_valid_parameters(*new_params))
                 if p.is_valid_parameters(*new_params):
                     # Tentatively accept update
                     res["param_tol"] = diff_tolerance(params, new_params)
                     p.set_parameters(*new_params)
                     # Obtain new score and check for improvement
                     new_score = p.compute_score(data, controls)
-                    if new_score > score:
+                    if new_score >= score:
                         # Accept parameter update
                         break
                 # Reject update and try again

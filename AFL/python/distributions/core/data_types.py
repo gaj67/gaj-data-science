@@ -269,7 +269,7 @@ def mult_rmat_vec(mat: Values2d, vec: Values) -> Values:
         - vec (tuple of scalar or vector): The vector.
 
     Returns:
-        - vec' (tuple of float or vector): The vector result.
+        - vec' (tuple of scalar or vector): The vector result.
     """
     return tuple(sum(x * y for x, y in zip(row, vec)) for row in mat)
 

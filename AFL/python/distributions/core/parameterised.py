@@ -65,9 +65,8 @@ class Parameterised(ABC):
     Interface for a mutable holder of parameters.
     """
 
-    @staticmethod
     @abstractmethod
-    def default_parameters() -> Values:
+    def default_parameters(self) -> Values:
         """
         Provides default (scalar) values of the distributional parameters.
 
@@ -98,7 +97,6 @@ class Parameterised(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
     def is_valid_parameters(self, *params: Values) -> bool:
         """
         Determines whether or not the given parameter values are viable.
@@ -112,11 +110,17 @@ class Parameterised(ABC):
             - flag (bool): A  value of True if the values are all valid,
                 else False.
         """
-        raise NotImplementedError
+        # By default, just check for dimensionality and divergence
+        for value in params:
+            if not is_scalar(value) and not is_vector(value):
+                return False
+            if is_divergent(value):
+                return False
+        return True
 
 
 ###############################################################################
-# Base implementation class:
+# Standard implementation class:
 
 
 class Parameters(Parameterised):
@@ -140,56 +144,54 @@ class Parameters(Parameterised):
             self.set_parameters(*params)
 
     def parameters(self) -> Values:
-        """
-        Provides the values of the distributional parameters.
-
-        Returns:
-            - params (tuple of float or ndarray): The parameter values.
-        """
         return self._params
 
     def set_parameters(self, *params: Values):
-        """
-        Overrides the distributional parameter value(s).
-
-        Invalid parameters will cause an exception.
-
-        Input:
-            - params (tuple of float or ndarray): The parameter value(s).
-        """
         if not self.is_valid_parameters(*params):
             raise ValueError("Invalid parameters!")
         self._params = params
 
-    def is_valid_parameters(self, *params: Values) -> bool:
-        # By default, just check for dimensionality and divergence
-        for value in params:
-            if not is_scalar(value) and not is_vector(value):
-                return False
-            if is_divergent(value):
-                return False
-        return True
-
 
 ###############################################################################
-# Regression implementation class:
+# Special implementation class for regression:
 
 
 # Indicates that the regression weights have not yet been specified
 UNSPECIFIED_REGRESSION = np.array([])
 
+# The default value of the link parameter
+DEFAULT_LINK = 0.0
 
-class RegressionParameters(Parameters):
+
+class RegressionParameters(Parameterised):
     """
-    Implements a container for regression parameters and optionally
-    other independent parameters.
-
-    Specifically, the regression parameters take the form of a vector,
-    which is always placed first amongst all parameters.
-
-    Note: Use the UNSPECIFIED_REGRESSION constant to indicate that the
-    regression parameters are unknown, and need to be set or estimated.
+    An implementation for accessing regression parameters,
+    where the additional, independent parameters are accessed
+    through an underlying link model.
     """
+
+    def __init__(
+        self, link: Parameterised, reg_params: Vector = UNSPECIFIED_REGRESSION
+    ):
+        """
+        Initialises the regression with the underlying link model,
+        and optionally the regression parameters.
+
+        Input:
+            - link (parameterised): The link model.
+            - reg_params (vector, optional): The regression parameters.
+        """
+        self._link = link
+        self.set_parameters(reg_params, *link.parameters()[1:])
+
+    def underlying(self) -> Parameterised:
+        """
+        Obtains the underlying regression link model.
+
+        Returns:
+            - link (linkable): The link model.
+        """
+        return self._link
 
     def regression_parameters(self) -> Vector:
         """
@@ -198,7 +200,7 @@ class RegressionParameters(Parameters):
         Returns:
             - reg_params (vector): The value(s) of the regression parameter(s).
         """
-        return self.parameters()[0]
+        return self._phi
 
     def independent_parameters(self) -> Values:
         """
@@ -208,20 +210,27 @@ class RegressionParameters(Parameters):
             - indep_params (tuple of float or vector): The value(s) of the independent
                 parameter(s), if any.
         """
-        return self.parameters()[1:]
+        return self.underlying().parameters()[1:]
+
+    # -----------------------
+    # Parameterised interface
+
+    def default_parameters(self) -> Values:
+        return (UNSPECIFIED_REGRESSION,) + self.underlying().default_parameters()[1:]
+
+    def parameters(self) -> Values:
+        return (self._phi,) + self.independent_parameters()
+
+    def set_parameters(self, *params: Values):
+        if not self.is_valid_parameters(*params):
+            raise ValueError("Invalid parameters!")
+        self._phi = params[0]
+        self.underlying().set_parameters(DEFAULT_LINK, *params[1:])
 
     def is_valid_parameters(self, *params: Values) -> bool:
         # Must have a vector first parameter!
-        if len(params) == 0:
+        if len(params) == 0 or not is_vector(params[0]):
             return False
-        _iter = iter(params)
-        phi = next(_iter)
-        if not is_vector(phi) or is_divergent(phi):
+        if not super().is_valid_parameters(params[0]):
             return False
-        # Any remaining parameters must be scalar or vector
-        for value in _iter:
-            if not is_scalar(value) and not is_vector(value):
-                return False
-            if is_divergent(value):
-                return False
-        return True
+        return self.underlying().is_valid_parameters(DEFAULT_LINK, *params[1:])

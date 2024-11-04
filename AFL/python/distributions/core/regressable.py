@@ -4,6 +4,7 @@ variate and covariate data using an optimiser.
 """
 
 from typing import Optional, Tuple
+from abc import abstractmethod
 
 import numpy as np
 from numpy.linalg import solve
@@ -30,55 +31,43 @@ from .optimiser import (
     Controllable,
     to_data,
 )
-from .fittable import Scorable, Differentiable
+from .fittable import GradientOptimisable
 
 
 ###############################################################################
 # Classes for gradient optimisation with covariates using linear regression:
 
 
-class Linkable(Parameterised, Scorable, Differentiable):
+class RegressionOptimisable(GradientOptimisable):
     """
-    Interface for an object that has access to both parameters and a
-    differentiable objective function.
+    An interface for parameter estimation from observed variate and
+    covariate data.
 
-    In addition, the parameterisation is assumed to make use of a
-    link parameter and, optionally, independent parameters. The link
-    parameter is assumed to always be the first parameter.
-    """
+    Assumes the underlying implementation is a regression model
+    with its first parameter being a vector of regression weights,
+    i.e. a RegressionParameters instance.
 
-    pass
-
-
-class RegressionOptimisable(Optimisable):
-    """
-    Implements an optimisable objective function based on linear regression,
-    using gradient information from an underlying link model.
-
-    The regression parameterisation is assumed to include a vector of
-    regression parameters as the first parameter, optionally followed by
-    any independent parameters needed by the link model.
+    Also assumes that the regression model is connected to a
+    supplied link model, and that this link model is differentiable.
     """
 
-    def __init__(self, link: Linkable):
-        """
-        Initialises the instance with the underlying link model.
-
-        Input:
-            - link (linkable): The link model.
-        """
-        self._link = link
-
+    @abstractmethod
     def underlying(self) -> Linkable:
         """
-        Obtains the underlying regression link model.
+        Obtains the underlying link model.
 
         Returns:
             - link (linkable): The link model.
         """
-        return self._link
+        raise NotImplementedError
 
+    # ---------------------
     # Optimisable interface
+
+    def compute_estimate(self, data: Data, controls: Controls) -> Values:
+        _, *psi = self.default_parameters()
+        phi = np.zeros(data.covariates.shape[1])
+        return (phi, *psi)
 
     def compute_score(self, data: Data, controls: Controls) -> float:
         self._invert_regression(data.covariates)
@@ -175,43 +164,29 @@ class RegressionOptimisable(Optimisable):
     def _invert_regression(self, covariates: MatrixLike) -> Values:
         """
         Computes the regression function and then inverts the
-        link parameter (and any independent parameters) into parameters
-        of the underlying distribution.
+        link parameter into the underlying distribution.
 
         Input:
             - covariates (matrix-like): The covariate value(s).
         """
-        phi, *psi = self.parameters()
+        phi = self.parameters()[0]
         if len(phi) == 0:
             raise ValueError("Uninitialised regression parameters!")
         covs = to_matrix(covariates, n_cols=len(phi))
         eta = as_value(covs @ phi)
+        _, *psi = self.underlying().parameters()
         self.underlying().set_parameters(eta, *psi)
 
 
-class Regressable(RegressionOptimisable, Controllable):
+#################################################################
+# The main regression class:
+
+
+class Regressable(Optimisable, Controllable):
     """
-    Implements parameter estimation from observed variate and
+    An interface for parameter estimation from observed variate and
     covariate data.
-
-    Assumes the underlying implementation is a regression model,
-    where the first parameter specifies the vector of regression
-    weights.
-
-    Also assumes that the regression model will connected
-    to a supplied link model.
     """
-
-    def __init__(self, link: Linkable):
-        """
-        Initialises the instance with the underlying link model.
-
-        Input:
-            - link (linkable): The link model.
-        """
-        if not isinstance(link, Linkable):
-            raise NotImplementedError("Missing Linkable interface!")
-        super().__init__(link)
 
     def fit(
         self,

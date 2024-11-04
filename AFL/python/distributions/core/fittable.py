@@ -16,6 +16,8 @@ from .data_types import (
     VectorLike,
     mean_value,
     mean_values,
+    mult_rmat_vec,
+    mult_rmat_rmat,
 )
 
 from .optimiser import (
@@ -30,14 +32,60 @@ from .optimiser import (
 
 
 ###############################################################################
-# Interface classes for gradient optimisation:
+# Base class for gradient optimisation:
 
 
-class Scorable(ABC):
+class GradientOptimisable(Optimisable):
     """
-    An interface for computing the score(s) of
-    an objective function for given data.
+    Interface for an optimisable objective function using gradients.
+
+    By default, no covariate information is used.
     """
+
+    # ---------------------
+    # Optimisable interface
+
+    def compute_estimate(self, data: Data, controls: Controls) -> Values:
+        values = self.compute_estimates(data.variate)
+        if len(values) == 0:
+            raise NotImplementedError("Override compute_estimate(s)!")
+        return tuple(mean_values(data.weights, values))
+
+    def compute_score(self, data: Data, controls: Controls) -> float:
+        return mean_value(data.weights, self.compute_scores(data.variate))
+
+    def compute_update(self, data: Data, controls: Controls) -> Values:
+        grads = self.compute_gradients(data.variate)
+        if len(grads) == 0:
+            # No update
+            return tuple()
+        grad = mean_values(data.weights, grads)
+        n_hess = self.compute_neg_hessian(data.variate)
+        if len(n_hess) == 0:
+            return tuple(grad)
+        n_hess = np.array([mean_values(data.weights, r) for r in n_hess])
+        return tuple(solve(n_hess, grad))
+
+    # -----------------------------
+    # GradientOptimisable interface
+
+    def compute_estimates(self, variate: Vector) -> Values:
+        """
+        Computes point estimates of the parameters for every
+        observation.
+
+        Note: If point estimates are not feasible then return an
+        empty result and override compute_estimate().
+
+        Input:
+            - variate (vector): The observed value(s) of the variate.
+
+        Returns:
+            - params (tuple of scalar or vector): The estimated value(s)
+                of the parameter(s).
+        """
+        # By default, do not compute point estimates
+        return tuple()
 
     @abstractmethod
     def compute_scores(self, variate: Vector) -> Vector:
@@ -53,17 +101,6 @@ class Scorable(ABC):
         """
         raise NotImplementedError
 
-
-class Differentiable(ABC):
-    """
-    An interface for computing the gradient, and optionally the Hessian,
-    of an objective function.
-
-    Note: If second derivatives are not computed then compute_neg_hessian()
-    must return a length-zero value, and only the gradient will be used.
-    """
-
-    @abstractmethod
     def compute_gradients(self, variate: Vector) -> Values:
         """
         Computes the gradient(s) of the objective function for the
@@ -80,7 +117,8 @@ class Differentiable(ABC):
             - grad_params (tuple of float or vector): The derivatives of the
                 objective function with respect to the parameters.
         """
-        raise NotImplementedError
+        # By default, do not compute first derivatives
+        return tuple()
 
     def compute_neg_hessian(self, variate: Vector) -> Values2d:
         """
@@ -105,29 +143,128 @@ class Differentiable(ABC):
 
 
 ###############################################################################
-# Implementation classes for optimisation:
+# Special class for gradient optimisation in a transformed space:
 
 
-class StandardOptimisable(Optimisable, Scorable, Differentiable):
+class TransformOptimisable(GradientOptimisable):
     """
-    Implements a standard optimisable objective function using gradients.
+    Interface for an optimisable objective function using scores and derivatives
+    computed in a transformed space.
 
-    No covariate information is used.
+    Assumes the existence of an underlying instance to hold the actual
+    parameters, and to compute the objective function score and derivatives
+    in the original space.
+
+    By default, no covariate information is used.
     """
 
-    def compute_score(self, data: Data, controls: Controls) -> float:
-        return mean_value(data.weights, self.compute_scores(data.variate))
+    # -----------------------
+    # Parameterised interface
 
-    def compute_update(self, data: Data, controls: Controls) -> Values:
-        grad = mean_values(data.weights, self.compute_gradients(data.variate))
-        n_hess = self.compute_neg_hessian(data.variate)
+    def default_parameters(self) -> Values:
+        std_params = self.underlying().default_parameters()
+        return self.apply_transform(*std_params)
+
+    def parameters(self) -> Values:
+        std_params = self.underlying().parameters()
+        return self.apply_transform(*std_params)
+
+    def set_parameters(self, *params: Values):
+        if not self.is_valid_parameters(*params):
+            raise ValueError("Invalid parameters!")
+        std_params = self.invert_transform(*params)
+        self.underlying().set_parameters(*std_params)
+
+    # -----------------------------
+    # GradientOptimisable interface
+
+    def compute_estimate(self, data: Data, controls: Controls) -> Values:
+        std_params = self.underlying().compute_estimate(data, controls)
+        return self.apply_transform(*std_params)
+
+    def compute_scores(self, variate: Vector) -> Vector:
+        return self.underlying().compute_scores(variate)
+
+    def compute_gradients(self, variate: Vector) -> Values:
+        grads = self.underlying().compute_gradients(variate)
+        if len(grads) == 0:
+            return tuple()
+        jac = self.compute_jacobian()
+        return mult_rmat_vec(jac, grads)
+
+    def compute_neg_hessian(self, variate: Vector) -> Values2d:
+        n_hess = self.underlying().compute_neg_hessian(variate)
         if len(n_hess) == 0:
-            return tuple(grad)
-        n_hess = np.array([mean_values(data.weights, r) for r in n_hess])
-        return tuple(solve(n_hess, grad))
+            return tuple()
+        jac = self.compute_jacobian()
+        # This is an approximation which assumes that
+        # the expectation of any score gradient is zero.
+        return mult_rmat_rmat(mult_rmat_rmat(jac, n_hess), jac)
+
+    # ------------------------------
+    # TransformOptimisable interface
+
+    @abstractmethod
+    def underlying(self) -> GradientOptimisable:
+        """
+        Obtains the underlying model.
+
+        Returns:
+            - inst (optimisable): The underlying instance.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def apply_transform(self, *std_params: Values) -> Values:
+        """
+        Transforms the standard parameterisation into the
+        alternative parameterisation.
+
+        Input:
+            - std_params (tuple of float or vector): The value(s)
+                of the standard parameter(s).
+
+        Returns:
+            - alt_params (tuple of float or vector): The value(s)
+                of the alternative parameter(s).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def invert_transform(self, *alt_params: Values) -> Values:
+        """
+        Inversely transforms the alternative parameterisation into
+        the standard parameterisation.
+
+        Input:
+            - alt_params (tuple of float or vector): The value(s)
+                of the alternative parameter(s).
+
+        Returns:
+            - std_params (tuple of float or vector): The value(s)
+                of the standard parameter(s).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def compute_jacobian(self) -> Values2d:
+        """
+        Computes the Jacobian matrix of the inverse transformation,
+        i.e. the derivatives of the standard parameters (column-wise)
+        with respect to the alternative parameters (row-wise).
+
+        Returns:
+            - jac (matrix-like of scalar or vector): The Jacobian matrix
+                of the inverse link transformation.
+        """
+        raise NotImplementedError
 
 
-class Fittable(StandardOptimisable, Controllable):
+###############################################################################
+# Main class for optimisation:
+
+
+class Fittable(Optimisable, Controllable):
     """
     Interface for estimating parameter values from data.
     """

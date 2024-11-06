@@ -6,7 +6,6 @@ The link parameter is the natural parameter, eta = logit(theta).
 """
 
 import numpy as np
-from scipy.special import expit as logistic
 
 if __name__ == "__main__":
     import imptools
@@ -19,48 +18,35 @@ from .core.data_types import (
     Values,
     Values2d,
     Vector,
-    VectorLike,
-    is_divergent,
-    is_vector,
-    to_vector,
-    as_value,
     mean_value,
 )
 
-from .core.parameterised import Parameterised, guard_prob
+from .core.parameterised import UNSPECIFIED_VECTOR, guard_prob
 
 from .core.distribution import (
-    Distribution,
-    RegressionDistribution,
+    StandardDistribution,
+    set_link,
 )
 
-from .core.controllable import Controls, set_controls
-from .core.estimator import Fittable, Data, Differentiable
-from .core.regressor import Fittable as Regressable, UNSPECIFIED_REGRESSION
+from .core.link_models import LogitLink1
 
-
-DEFAULT_THETA = 0.5
+from .core.optimiser import Data, Controls
 
 
 #################################################################
 # Bernoulli distribution
 
+DEFAULT_THETA = 0.5
 
-@set_controls(max_iters=0)
-class BernoulliDistribution(Parameterised, Distribution, Fittable):
+
+@set_link(LogitLink1)
+class BernoulliDistribution(StandardDistribution):
     """
     Implements the Bernoulli probability distribution for a binary
     response variate, X.
 
     The sole parameter, theta, governs the probability that X=1.
     """
-
-    # -----------------------
-    # Parameterised interface
-
-    @staticmethod
-    def default_parameters() -> Values:
-        return (DEFAULT_THETA,)
 
     def __init__(self, theta: Value = DEFAULT_THETA):
         """
@@ -71,101 +57,51 @@ class BernoulliDistribution(Parameterised, Distribution, Fittable):
         """
         super().__init__(theta)
 
-    def is_valid_parameters(self, *params: Values) -> bool:
-        if len(params) != 1:
+    # -----------------------
+    # Parameterised interface
+
+    def default_parameters(self) -> Values:
+        return (DEFAULT_THETA,)
+
+    def check_parameters(self, *params: Values) -> bool:
+        if len(params) != 1 or not super().check_parameters(*params):
             return False
         theta = params[0]
-        return not is_divergent(theta) and np.all(theta >= 0) and np.all(theta <= 1)
+        return np.all(theta > 0) and np.all(theta < 1)
 
     # ----------------------
     # Distribution interface
 
     def mean(self) -> Value:
-        theta = self.parameters()[0]
+        theta = self.get_parameters()[0]
         return theta
 
     def variance(self) -> Value:
-        theta = self.parameters()[0]
+        theta = self.get_parameters()[0]
         return theta * (1 - theta)
 
-    def log_prob(self, variate: VectorLike) -> Value:
-        v_data = to_vector(variate)
-        return as_value(self.compute_scores(self.parameters(), v_data))
+    # -----------------------------
+    # GradientOptimisable interface
 
-    # ------------------
-    # Fittable interface
-
-    def initialise_parameters(self, data: Data, controls: Controls) -> Values:
-        theta = mean_value(data.weights, data.variate)
+    def compute_estimate(self, data: Data, controls: Controls) -> Values:
+        theta = guard_prob(mean_value(data.weights, data.variate))
+        print("DEBUG[BernoulliDistribution.compute_estimates]: theta=", theta)
         return (theta,)
 
-    def compute_scores(self, params: Values, variate: Vector) -> Vector:
-        theta = guard_prob(params[0])
+    def compute_scores(self, variate: Vector) -> Vector:
+        theta = self.get_parameters()[0]
         return variate * np.log(theta) + (1 - variate) * np.log(1 - theta)
 
+    def compute_gradients(self, variate: Vector) -> Values:
+        theta = self.get_parameters()[0]
+        grads = (variate - theta) / (theta * (1 - theta))
+        return (grads,)
 
-#################################################################
-# Bernoulli regression
-
-
-class BernoulliRegression(RegressionDistribution, Regressable, Differentiable):
-    """
-    Implements the Bernoulli conditional probability distribution
-    for a binary response variate, X, as a linear regression of
-    numerical covariate(s), Z.
-
-    The natural parameter is eta = logit(theta) with natural variate X.
-    """
-
-    # --------------------------------
-    # RegressionDistribution interface
-
-    @staticmethod
-    def default_parameters() -> Values:
-        return (UNSPECIFIED_REGRESSION,)
-
-    def __init__(self, phi: Vector = UNSPECIFIED_REGRESSION):
-        """
-        Initialises the conditional Bernoulli distribution.
-
-        Input:
-            - phi (vector): The regression parameter value(s).
-        """
-        pdf = BernoulliDistribution()
-        super().__init__(pdf, phi)
-
-    def is_valid_parameters(self, *params: Values) -> bool:
-        if len(params) != 1:
-            return False
-        phi = params[0]
-        return is_vector(phi) and not is_divergent(phi)
-
-    def invert_link(self, *link_params: Values) -> Values:
-        theta = logistic(link_params[0])
-        return (theta,)
-
-    # ---------------------
-    # Regressable interface
-
-    def initialise_parameters(self, data: Data, controls: Controls) -> Values:
-        phi = np.zeros(data.covariates.shape[1])
-        return (phi,)
-
-    def compute_scores(self, params: Values, variate: Vector) -> Vector:
-        u_params = self.invert_link(*params)
-        return self.distribution().compute_scores(u_params, variate)
-
-    # ------------------------
-    # Differentiable interface
-
-    def compute_gradients(self, params: Values, variate: Vector) -> Values:
-        # grad = dL/d eta NOT dL/d theta
-        theta = self.invert_link(*params)[0]
-        return (variate - theta,)
-
-    def compute_neg_hessian(self, params: Values, variate: Vector) -> Values2d:
-        theta = self.invert_link(*params)[0]
-        return ((theta * (1 - theta),),)
+    def compute_neg_hessian(self, variate: Vector) -> Values2d:
+        # Use expected value
+        theta = self.get_parameters()[0]
+        v = 1.0 / (theta * (1 - theta))
+        return ((v,),)
 
 
 ###############################################################################
@@ -173,7 +109,7 @@ class BernoulliRegression(RegressionDistribution, Regressable, Differentiable):
 if __name__ == "__main__":
     # Test default parameter
     bd = BernoulliDistribution()
-    assert bd.parameters() == (DEFAULT_THETA,)
+    assert bd.get_parameters() == (DEFAULT_THETA,)
     assert bd.mean() == DEFAULT_THETA
     assert bd.variance() == DEFAULT_THETA * (1 - DEFAULT_THETA)
     print("Passed default parameter tests!")
@@ -181,15 +117,10 @@ if __name__ == "__main__":
     # Test specified parameter
     THETA = 0.123456
     bd = BernoulliDistribution(THETA)
-    assert bd.parameters() == (THETA,)
+    assert bd.get_parameters() == (THETA,)
     assert bd.mean() == THETA
     assert bd.variance() == THETA * (1 - THETA)
     print("Passed specified parameter tests!")
-
-    X = [1, 1, 1, 1, 0, 0, 1, 1, 1, 0]
-    bd = BernoulliDistribution(THETA)
-    res = bd.fit(X)
-    assert np.abs(bd.mean() - np.mean(X)) < 1e-6
 
     # Test fitting 1 observation - be careful with 0 or 1!
     for X in [1e-3, 0.9, 0.5, 0.1, 1, 0]:
@@ -199,6 +130,11 @@ if __name__ == "__main__":
     print("Passed fitting 1 observation tests!")
 
     # Test fitting multiple observations
+    X = [1, 1, 1, 1, 0, 0, 1, 1, 1, 0]
+    bd = BernoulliDistribution(THETA)
+    res = bd.fit(X)
+    assert np.abs(bd.mean() - np.mean(X)) < 1e-6
+
     for n in range(2, 11):
         X = np.random.randint(0, 2, n)
         bd = BernoulliDistribution()
@@ -207,10 +143,9 @@ if __name__ == "__main__":
     print("Passed fitting multiple observations tests!")
 
     # ---------------------------------------------------
-
     # Test default parameter
-    br = BernoulliRegression()
-    assert br.parameters() == (UNSPECIFIED_REGRESSION,)
+    br = BernoulliDistribution().regressor()
+    assert br.get_parameters() == (UNSPECIFIED_VECTOR,)
     print("Passed default regression parameter tests!")
 
     # Test fitting two groups of multiple observations

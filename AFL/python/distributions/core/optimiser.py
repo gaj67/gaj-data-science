@@ -259,19 +259,20 @@ class Optimiser:
             # Apply line search
             num_iters += 1
             step_size = controls.get("step_size", 1.0)
-            params = p.parameters()
+            params = p.get_parameters()
             print("DEBUG[optimiser]: params=", params)
             for _ in range(controls.get("step_iters", 5)):
                 # Apply update
                 new_params = tuple(v + step_size * d for v, d in zip(params, d_params))
                 print("DEBUG[optimiser]: new_params=", new_params)
-                print("DEBUG[optimiser]: valid=", p.is_valid_parameters(*new_params))
-                if p.is_valid_parameters(*new_params):
+                print("DEBUG[optimiser]: valid=", p.check_parameters(*new_params))
+                if p.check_parameters(*new_params):
                     # Tentatively accept update
                     res["param_tol"] = diff_tolerance(params, new_params)
                     p.set_parameters(*new_params)
                     # Obtain new score and check for improvement
                     new_score = p.compute_score(data, controls)
+                    print("DEBUG[optimiser]: score=", score, "new_score=", new_score)
                     if new_score >= score:
                         # Accept parameter update
                         break
@@ -315,7 +316,7 @@ class Optimiser:
                     converged.
         """
         p = self.underlying()
-        params = p.parameters()
+        params = p.get_parameters()
         lengths = [len(v) if is_vector(v) else -1 for v in params]
 
         def encode(*params: Values) -> Vector:
@@ -443,7 +444,7 @@ def set_controls(
     **controls: Controls,
 ) -> Callable[[Type[Controllable]], Type[Controllable]]:
     """
-    Sstatically modifies the default values of the algorithm's controls.
+    Statically modifies the default values of the algorithm's controls.
 
     Input:
         - controls (dict): The overriden controls and their new default values.

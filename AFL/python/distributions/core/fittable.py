@@ -3,8 +3,8 @@ This modules defines classes for estimating parameters from data
 (without covariates) using an optimiser.
 """
 
-from abc import ABC, abstractmethod
-from typing import Optional
+from abc import abstractmethod
+from typing import Optional, Tuple
 
 import numpy as np
 from numpy.linalg import solve
@@ -30,6 +30,8 @@ from .optimiser import (
     to_data,
 )
 
+from .parameterised import TransformParameterised
+
 
 ###############################################################################
 # Base class for gradient optimisation:
@@ -46,10 +48,10 @@ class GradientOptimisable(Optimisable):
     # Optimisable interface
 
     def compute_estimate(self, data: Data, controls: Controls) -> Values:
-        values = self.compute_estimates(data.variate)
-        if len(values) == 0:
-            raise NotImplementedError("Override compute_estimate(s)!")
-        return tuple(mean_values(data.weights, values))
+        ind, values = self.compute_estimates(data.variate)
+        if len(values) == 0 or not np.any(ind):
+            return self.default_parameters()
+        return tuple(mean_values(data.weights[ind], values))
 
     def compute_score(self, data: Data, controls: Controls) -> float:
         return mean_value(data.weights, self.compute_scores(data.variate))
@@ -63,29 +65,33 @@ class GradientOptimisable(Optimisable):
         n_hess = self.compute_neg_hessian(data.variate)
         if len(n_hess) == 0:
             return tuple(grad)
+        print("DEBUG[GradientOptimisable.compute_update]: before - n_hess=", n_hess)
         n_hess = np.array([mean_values(data.weights, r) for r in n_hess])
+        print("DEBUG[GradientOptimisable.compute_update]: after - n_hess=", n_hess)
         return tuple(solve(n_hess, grad))
 
     # -----------------------------
     # GradientOptimisable interface
 
-    def compute_estimates(self, variate: Vector) -> Values:
+    def compute_estimates(self, variate: Vector) -> Tuple[Vector, Values]:
         """
         Computes point estimates of the parameters for every
         observation.
 
-        Note: If point estimates are not feasible then return an
-        empty result and override compute_estimate().
+        Note: If no point estimates are feasible then return
+        empty parameters, and override compute_estimate().
 
         Input:
             - variate (vector): The observed value(s) of the variate.
 
         Returns:
+            - ind (vector): A Boolean indicator vector specifying which
+                observations have corresponding point estimates.
             - params (tuple of scalar or vector): The estimated value(s)
                 of the parameter(s).
         """
         # By default, do not compute point estimates
-        return tuple()
+        return np.array([]), tuple()
 
     @abstractmethod
     def compute_scores(self, variate: Vector) -> Vector:
@@ -114,7 +120,7 @@ class GradientOptimisable(Optimisable):
             - variate (vector): The observed value(s) of the variate.
 
         Returns:
-            - grad_params (tuple of float or vector): The derivatives of the
+            - grad_params (tuple of scalar or vector): The derivatives of the
                 objective function with respect to the parameters.
         """
         # By default, do not compute first derivatives
@@ -134,7 +140,7 @@ class GradientOptimisable(Optimisable):
             - variate (vector): The observed value(s) of the valiate.
 
         Returns:
-            - n_hess (matrix-like of float or vector): The negative second
+            - n_hess (matrix-like of scalar or vector): The negative second
                 derivatives of the objective function with respect to the
                 parameters.
         """
@@ -146,10 +152,10 @@ class GradientOptimisable(Optimisable):
 # Special class for gradient optimisation in a transformed space:
 
 
-class TransformOptimisable(GradientOptimisable):
+class TransformOptimisable(TransformParameterised, GradientOptimisable):
     """
-    Interface for an optimisable objective function using scores and derivatives
-    computed in a transformed space.
+    Partial implementattion of an optimisable objective function using
+    scores and derivatives computed in a transformed space.
 
     Assumes the existence of an underlying instance to hold the actual
     parameters, and to compute the objective function score and derivatives
@@ -158,29 +164,24 @@ class TransformOptimisable(GradientOptimisable):
     By default, no covariate information is used.
     """
 
-    # -----------------------
-    # Parameterised interface
-
-    def default_parameters(self) -> Values:
-        std_params = self.underlying().default_parameters()
-        return self.apply_transform(*std_params)
-
-    def parameters(self) -> Values:
-        std_params = self.underlying().parameters()
-        return self.apply_transform(*std_params)
-
-    def set_parameters(self, *params: Values):
-        if not self.is_valid_parameters(*params):
-            raise ValueError("Invalid parameters!")
-        std_params = self.invert_transform(*params)
-        self.underlying().set_parameters(*std_params)
-
     # -----------------------------
     # GradientOptimisable interface
 
     def compute_estimate(self, data: Data, controls: Controls) -> Values:
-        std_params = self.underlying().compute_estimate(data, controls)
-        return self.apply_transform(*std_params)
+        ind, alt_values = self.compute_estimates(data.variate)
+        if len(alt_values) == 0 or not np.any(ind):
+            # Transform mean estimate
+            std_params = self.underlying().compute_estimate(data, controls)
+            return self.apply_transform(*std_params)
+        # Take mean of tranformed estimates
+        return tuple(mean_values(data.weights[ind], alt_values))
+
+    def compute_estimates(self, variate: Vector) -> Tuple[Vector, Values]:
+        ind, std_values = self.underlying().compute_estimates(variate)
+        if len(std_values) == 0 or not np.any(ind):
+            return ind, tuple()
+        alt_values = self.apply_transform(*std_values)
+        return ind, alt_values
 
     def compute_scores(self, variate: Vector) -> Vector:
         return self.underlying().compute_scores(variate)
@@ -207,42 +208,10 @@ class TransformOptimisable(GradientOptimisable):
     @abstractmethod
     def underlying(self) -> GradientOptimisable:
         """
-        Obtains the underlying model.
+        Obtains the underlying optimisable model.
 
         Returns:
             - inst (optimisable): The underlying instance.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def apply_transform(self, *std_params: Values) -> Values:
-        """
-        Transforms the standard parameterisation into the
-        alternative parameterisation.
-
-        Input:
-            - std_params (tuple of float or vector): The value(s)
-                of the standard parameter(s).
-
-        Returns:
-            - alt_params (tuple of float or vector): The value(s)
-                of the alternative parameter(s).
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def invert_transform(self, *alt_params: Values) -> Values:
-        """
-        Inversely transforms the alternative parameterisation into
-        the standard parameterisation.
-
-        Input:
-            - alt_params (tuple of float or vector): The value(s)
-                of the alternative parameter(s).
-
-        Returns:
-            - std_params (tuple of float or vector): The value(s)
-                of the standard parameter(s).
         """
         raise NotImplementedError
 
@@ -255,7 +224,7 @@ class TransformOptimisable(GradientOptimisable):
 
         Returns:
             - jac (matrix-like of scalar or vector): The Jacobian matrix
-                of the inverse link transformation.
+                of the inverse transformation.
         """
         raise NotImplementedError
 

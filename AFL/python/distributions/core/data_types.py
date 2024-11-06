@@ -256,6 +256,8 @@ def mean_values(weights: Vector, values: Values) -> Vector:
     Returns:
         - means (ndarray): The vector of value means.
     """
+    if len(values) == 0:
+        return np.array([])
     return (weights @ values_to_matrix(values, len(weights))) / np.sum(weights)
 
 

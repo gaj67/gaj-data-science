@@ -7,26 +7,24 @@ For example, the logistic distribution is not parameterised in its standard form
 """
 
 from abc import ABC, abstractmethod
+from typing import Callable, Type
 
 from .data_types import (
     Value,
     Values,
-    Values2d,
-    Vector,
     VectorLike,
     MatrixLike,
-    is_scalar,
-    is_vector,
-    is_divergent,
     to_vector,
     as_value,
-    mult_rmat_vec,
-    mult_rmat_rmat,
 )
 
-from .parameterised import Parameterised, Parameters, RegressionParameters  # ??
+from .parameterised import (
+    Parameterised,
+    Parameters,
+    OneVectorParameters,
+)
 from .fittable import Fittable, GradientOptimisable, TransformOptimisable
-from .regressable import Linkable, Regressable, RegressionOptimisable
+from .regressable import Regressable, RegressionOptimisable
 
 
 ###############################################################################
@@ -77,15 +75,18 @@ class Distribution(ABC):
         raise NotImplementedError
 
 
-class StandardDistribution(Distribution, GradientOptimisable, Fittable):
+class BaseDistribution(Distribution, GradientOptimisable, Fittable):
     """
-    Implements a parameterised distribution with an optimisable
+    Interface for a parameterised distribution with an optimisable
     log-likelihood score.
+
+    Note: The implementation of this interface must hold the parameters.
     """
 
     # Distribution interface
 
     def log_prob(self, variate: VectorLike) -> Value:
+        # Assume the objective function is the log-likelihhood
         return as_value(self.compute_scores(to_vector(variate)))
 
 
@@ -93,34 +94,28 @@ class StandardDistribution(Distribution, GradientOptimisable, Fittable):
 # Transformed distribution class:
 
 
-class TransformDistribution(StandardDistribution, TransformOptimisable):
+class TransformDistribution(TransformOptimisable, BaseDistribution):
     """
-    Encapsulates a distribution using an alternative parameterisation
-    to the standard form.
+    Encapsulates an underlying distribution with an alternative parameterisation.
 
     There exists an invertible transformation between the standard
     parameterisation of the underlying distribution and the alternative
     parameterisation.
 
     Note: The transformed distribution does not itself hold any parameters.
+    Parameters are held by the implementation of the underlying distribution.
     """
 
-    def __init__(self, dist: StandardDistribution, *params: Values):
+    def __init__(self, dist: BaseDistribution):
         """
-        Encapsulates an instance of the specified distribution, and initialises
-        the values of the alternative parameters.
+        Encapsulates an instance of the specified distribution.
 
         Input:
             - dist (distribution): An instance of a parameterised distribution.
-            - params (tuple of float or vector): The value(s) of the alternative
-                parameter(s).
         """
         self._dist = dist
-        if len(params) == 0:
-            params = self.default_parameters()
-        self.set_parameters(*params)
 
-    def underlying(self) -> StandardDistribution:
+    def underlying(self) -> BaseDistribution:
         """
         Obtains the underlying distribution.
 
@@ -198,51 +193,126 @@ class ConditionalDistribution(ABC):
 
 
 class RegressionDistribution(
-    RegressionParameters, ConditionalDistribution, RegressionOptimisable, Regressable
+    ConditionalDistribution, RegressionOptimisable, Regressable
 ):
     """
-    Implements a conditional distribution using linear regression to compute
-    the parameters of the underlying distribution.
+    A partial implementation for a conditional distribution using
+    linear regression to optimise the parameters of the underlying
+    link distribution.
     """
 
-    def __init__(self, link: StandardDistribution, *params: Values):
+    def __init__(self, link: BaseDistribution):
         """
         Initialises the conditional distribution using a regression model
         with an underlying link distribution.
 
         The model parameters are assumed to consist of a vector of regression
-        parameters, optionally followed by any independent parameters.
+        parameters, followed by any additional parameters required by the link
+        distribution.
 
         The link distribution is assumed to be parameterised by a link parameter,
-        optionally followed by the independent parameters.
+        followed by the remaining independent parameters, if any.
 
         Input:
-            - dist (distribution): The underlying link distribution.
-            - params (tuple of scalar or vector): The value(s) of the
-                regression parameter(s), and independent parameter(s), if any.
+            - link (distribution): The underlying link distribution.
         """
-        RegressionParameters.__init__(self, link, *params)
+        self._regression = OneVectorParameters()
+        self._link = link
 
-    def underlying(self) -> Distribution:
+    # ---------------------------------
+    # RegressionParameterised interface
+
+    def regression(self) -> Parameterised:
+        return self._regression
+
+    def link(self) -> BaseDistribution:
         """
         Obtains the underlying link distribution.
 
         Returns:
             - dist (distribution): The distribution instance.
         """
-        return RegressionParameters.underlying(self)
+        return self._link
 
     # ---------------------------------
     # ConditionalDistribution interface
 
     def mean(self, covariates: MatrixLike) -> Value:
         self._invert_regression(covariates)
-        return self.underlying().mean()
+        return self.link().mean()
 
     def variance(self, covariates: MatrixLike) -> Value:
         self._invert_regression(covariates)
-        return self.underlying().variance()
+        return self.link().variance()
 
     def log_prob(self, variate: VectorLike, covariates: MatrixLike) -> Value:
         self._invert_regression(covariates)
-        return self.underlying().log_prob(variate)
+        return self.link().log_prob(variate)
+
+
+###############################################################################
+# Fundamental distribution implementation:
+
+
+class StandardDistribution(Parameters, BaseDistribution):
+    """
+    A partial implementation of a distribution with optimisable
+    parameters.
+    """
+
+    def __init__(self, *params: Values):
+        """
+        Input:
+            - params (tuple of scalar or vector): The value(s) of the
+                distributional parameter(s).
+        """
+        Parameters.__init__(self, *params)
+
+    def link(self) -> BaseDistribution:
+        """
+        Obtains the link distribution used for regression.
+
+        Returns:
+            - link (distribution): The link distribution.
+        """
+        return self
+
+    def regressor(self) -> RegressionDistribution:
+        """
+        Obtains a regression distribution for estimating
+        parameters from variate and covariate data.
+
+        Returns:
+            - regressor (distribution): The regression distribution.
+        """
+        return RegressionDistribution(self.link())
+
+
+###############################################################################
+# Decorator for specifying the link model:
+
+
+def set_link(
+    link_klass: Type[TransformDistribution],
+) -> Callable[[StandardDistribution], StandardDistribution]:
+    """
+    Specifies the link model to underly the regression model.
+
+    Input:
+        - link_klass (class): The link model class.
+
+    Returns:
+        - decorator (method): A decorator of a distribution class.
+    """
+
+    def decorator(klass: Type[StandardDistribution]) -> Type[StandardDistribution]:
+        _link_fn = klass.link
+
+        def link(self) -> BaseDistribution:
+            return link_klass(_link_fn(self))
+
+        klass.link = link
+        klass.link.__doc__ = _link_fn.__doc__
+        return klass
+
+    return decorator

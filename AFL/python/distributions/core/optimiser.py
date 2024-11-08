@@ -233,22 +233,18 @@ class Optimiser:
         # Get score of current parameters
         p = self.underlying()
 
-        score = p.compute_score(data, controls)
-        num_iters = 0
-        converged = False
-
         res = {
-            "score": score,
-            "num_iters": num_iters,
+            "score": p.compute_score(data, controls),
+            "num_iters": 0,
             "score_tol": 0.0,
             "param_tol": 0.0,
-            "converged": converged,
+            "converged": False,
         }
 
         min_score_tol = controls.get("score_tol", 0.0)
         min_param_tol = controls.get("param_tol", 0.0)
 
-        while num_iters < controls.get("max_iters", 0):
+        for _ in range(controls.get("max_iters", 0)):
             # Obtain update
             d_params = p.compute_update(data, controls)
             print("DEBUG[optimiser]: d_params=", d_params)
@@ -257,7 +253,7 @@ class Optimiser:
                 break
 
             # Apply line search
-            num_iters += 1
+            res["num_iters"] += 1
             step_size = controls.get("step_size", 1.0)
             params = p.get_parameters()
             print("DEBUG[optimiser]: params=", params)
@@ -272,8 +268,20 @@ class Optimiser:
                     p.set_parameters(*new_params)
                     # Obtain new score and check for improvement
                     new_score = p.compute_score(data, controls)
-                    print("DEBUG[optimiser]: score=", score, "new_score=", new_score)
-                    if new_score >= score:
+                    res["score_tol"] = new_score - res["score"]
+                    print(
+                        "DEBUG[optimiser]: score=",
+                        res["score"],
+                        "new_score=",
+                        new_score,
+                        "score_tol=",
+                        res["score_tol"],
+                    )
+                    if (
+                        new_score >= res["score"]
+                        or min_score_tol > 0
+                        and np.abs(res["score_tol"]) < min_score_tol
+                    ):
                         # Accept parameter update
                         break
                 # Reject update and try again
@@ -284,18 +292,14 @@ class Optimiser:
                 raise ValueError("Parameters failed to converge within bounds!")
 
             # Check convergence
-            res["score_tol"] = new_score - score
-            score = new_score
-            converged = (min_param_tol <= 0 or res["param_tol"] <= min_param_tol) and (
-                min_score_tol <= 0 or res["score_tol"] <= min_score_tol
-            )
-            if converged:
+            res["score"] = new_score
+            res["converged"] = (
+                min_param_tol <= 0 or res["param_tol"] < min_param_tol
+            ) and (min_score_tol <= 0 or np.abs(res["score_tol"]) < min_score_tol)
+            if res["converged"]:
                 break
 
-        res["score"] = score
-        res["num_iters"] = num_iters
-        res["converged"] = converged
-
+        # Algorithm has halted
         return res
 
     def _external_optimiser(self, data: Data, controls: Controls) -> Results:

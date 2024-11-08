@@ -19,10 +19,11 @@ class LogitLink1(TransformDistribution):
     Implements a one-parameter logit link model,
     namely:
 
-        - eta = logit(theta),
-        - theta = logistic(eta),
+           eta = logit(theta) ;
+        => theta = logistic(eta) ,
 
-    where theta is a probability or proportion.
+    where the underlying parameter, theta, represents
+    a probability or proportion.
     """
 
     def check_parameters(self, *params: Values) -> bool:
@@ -53,10 +54,11 @@ class LogLink1(TransformDistribution):
     Implements a one-parameter log link model,
     namely:
 
-        - eta = log(lambda),
-        - laambda = exp(eta),
+           eta = log(lambda) ;
+        => lambda = exp(eta) ,
 
-    where lambda is a positive rate or scale.
+    where the underlying parameter, lambda, represents
+    a positive rate or scale.
     """
 
     def check_parameters(self, *params: Values) -> bool:
@@ -75,3 +77,106 @@ class LogLink1(TransformDistribution):
     def compute_jacobian(self) -> Values2d:
         _lambda = self.underlying().get_parameters()[0]
         return ((_lambda,),)
+
+
+########################################################
+# Log link models (two parameters):
+
+
+class LogRatioLink2a(TransformDistribution):
+    """
+    Implements a two-parameter log link function:
+
+           eta = log(alpha/beta) , psi = alpha ;
+        => alpha = psi , beta = psi*exp(-eta) ,
+
+    where the underlying parameters, alpha and beta,
+    represent positive shapes or rates.
+    """
+
+    def check_parameters(self, *params: Values) -> bool:
+        if len(params) != 2 or not super().check_parameters(*params):
+            return False
+        eta, psi = params
+        return np.all(psi > 0)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        alpha, beta = std_params
+        eta = np.log(alpha / beta)
+        psi = alpha
+        return (eta, psi)
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        eta, psi = alt_params
+        alpha = psi
+        beta = psi * np.exp(-eta)
+        return (alpha, beta)
+
+    def compute_jacobian(self) -> Values2d:
+        alpha, beta = self.underlying().get_parameters()
+        return ((0, -beta), (1, beta / alpha))
+
+
+class LogRatioLink2b(TransformDistribution):
+    """
+    Implements a two-parameter log link function:
+
+           eta = log(alpha/beta) , psi = beta ;
+        => alpha = psi*exp(eta) , beta = psi ,
+
+    where the underlying parameters, alpha and beta,
+    represent positive shapes or rates.
+    """
+
+    def check_parameters(self, *params: Values) -> bool:
+        if len(params) != 2 or not super().check_parameters(*params):
+            return False
+        eta, psi = params
+        return np.all(psi > 0)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        alpha, beta = std_params
+        eta = np.log(alpha / beta)
+        psi = beta
+        return (eta, psi)
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        eta, psi = alt_params
+        alpha = psi * np.exp(eta)
+        beta = psi
+        return (alpha, beta)
+
+    def compute_jacobian(self) -> Values2d:
+        alpha, beta = self.underlying().get_parameters()
+        return ((alpha, 0), (alpha / beta, 1))
+
+
+class LogRatioLink2ab(TransformDistribution):
+    """
+    Implements a two-parameter log link function:
+
+           eta = log(alpha/beta) , psi = log(alpha*beta) ;
+        => alpha = exp((psi+eta)/2) , beta = exp((psi-eta)/2) ,
+
+    where the underlying parameters, alpha and beta,
+    represent positive shapes or rates.
+    """
+
+    def check_parameters(self, *params: Values) -> bool:
+        return len(params) == 2 and super().check_parameters(*params)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        alpha, beta = std_params
+        eta = np.log(alpha / beta)
+        psi = np.log(alpha * beta)
+        return (eta, psi)
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        eta, psi = alt_params
+        alpha = np.exp(0.5 * (psi + eta))
+        beta = np.exp(0.5 * (psi - eta))
+        return (alpha, beta)
+
+    def compute_jacobian(self) -> Values2d:
+        alpha, beta = self.underlying().get_parameters()
+        return ((0.5 * alpha, -0.5 * beta), (0.5 * alpha, 0.5 * beta))

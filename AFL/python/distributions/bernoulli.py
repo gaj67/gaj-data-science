@@ -22,14 +22,8 @@ from .core.data_types import (
 )
 
 from .core.parameterised import UNSPECIFIED_VECTOR, guard_prob
-
-from .core.distribution import (
-    StandardDistribution,
-    set_link,
-)
-
+from .core.distribution import StandardDistribution, set_link
 from .core.link_models import LogitLink1
-
 from .core.optimiser import Data, Controls
 
 

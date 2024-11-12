@@ -255,9 +255,10 @@ class Optimiser:
             # Apply line search
             res["num_iters"] += 1
             step_size = controls.get("step_size", 1.0)
+            step_decay = controls.get("step_decay", 0.5)
             params = p.get_parameters()
             print("DEBUG[optimiser]: params=", params)
-            for _ in range(controls.get("step_iters", 5)):
+            for _ in range(controls.get("step_iters", 10)):
                 # Apply update
                 new_params = tuple(v + step_size * d for v, d in zip(params, d_params))
                 print("DEBUG[optimiser]: new_params=", new_params)
@@ -286,7 +287,7 @@ class Optimiser:
                         break
                 # Reject update and try again
                 p.set_parameters(*params)
-                step_size *= 0.5
+                step_size *= step_decay
             else:
                 # Could not improve estimate
                 raise ValueError("Parameters failed to converge within bounds!")

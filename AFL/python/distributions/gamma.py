@@ -3,8 +3,9 @@ This module implements the gamma distribution.
 
 The distributional parameters are alpha (shape) and beta (rate).
 
-The link parameter is eta = ln(alpha/beta), which is not a natural
-parameter.
+The link parameter is taken to be eta = log(alpha/beta) = log(mu),
+which is not a natural parameter. The independent parameter is chosen
+as psi = beta.
 """
 
 import numpy as np

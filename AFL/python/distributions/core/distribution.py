@@ -294,7 +294,7 @@ class StandardDistribution(Parameters, BaseDistribution):
 
 def set_link(
     link_klass: Type[TransformDistribution],
-) -> Callable[[StandardDistribution], StandardDistribution]:
+) -> Callable[[Type[StandardDistribution]], Type[StandardDistribution]]:
     """
     Specifies the link model to underly the regression model.
 

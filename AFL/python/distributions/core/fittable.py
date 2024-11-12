@@ -4,7 +4,7 @@ This modules defines classes for estimating parameters from data
 """
 
 from abc import abstractmethod
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Type
 
 import numpy as np
 from numpy.linalg import solve
@@ -146,6 +146,25 @@ class GradientOptimisable(Optimisable):
         """
         # By default, do not compute second derivatives
         return tuple()
+
+
+###############################################################################
+# Special decorator for turning off second derivative calculations:
+
+
+def no_hessian(klass: Type[GradientOptimisable]) -> Type[GradientOptimisable]:
+    """
+    Turns off second derivative calculations by returning
+    an empty negative Hessian matrix.
+    """
+    _compute_neg_hessian = klass.compute_neg_hessian
+
+    def compute_neg_hessian(self, variate: Vector) -> Values2d:
+        return tuple()
+
+    klass.compute_neg_hessian = compute_neg_hessian
+    klass.compute_neg_hessian.__doc__ = _compute_neg_hessian.__doc__
+    return klass
 
 
 ###############################################################################

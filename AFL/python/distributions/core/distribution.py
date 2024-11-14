@@ -25,6 +25,7 @@ from .parameterised import (
 )
 from .fittable import Fittable, GradientOptimisable, TransformOptimisable
 from .regressable import Regressable, RegressionOptimisable
+from .optimiser import Controls, set_controls
 
 
 ###############################################################################
@@ -260,6 +261,8 @@ class StandardDistribution(Parameters, BaseDistribution):
     parameters.
     """
 
+    regressor_klass = RegressionDistribution
+
     def __init__(self, *params: Values):
         """
         Input:
@@ -285,7 +288,7 @@ class StandardDistribution(Parameters, BaseDistribution):
         Returns:
             - regressor (distribution): The regression distribution.
         """
-        return RegressionDistribution(self.link())
+        return self.regressor_klass(self.link())
 
 
 ###############################################################################
@@ -313,6 +316,52 @@ def set_link(
 
         klass.link = link
         klass.link.__doc__ = _link_fn.__doc__
+        return klass
+
+    return decorator
+
+
+###############################################################################
+# Decorators for controlling the regression model:
+
+
+def set_regressor(
+    regressor_klass: Type[RegressionDistribution],
+) -> Callable[[Type[StandardDistribution]], Type[StandardDistribution]]:
+    """
+    Sets the class of the regression moodel.
+
+    Input:
+        - regressor_klass (class): The regressor class.
+
+    Returns:
+        - decorator (method): A distribution class decorator.
+    """
+
+    def decorator(klass: Type[StandardDistribution]) -> Type[StandardDistribution]:
+        klass.regressor_klass = regressor_klass
+        return klass
+
+    return decorator
+
+
+def set_regressor_controls(
+    **controls: Controls,
+) -> Callable[[Type[StandardDistribution]], Type[StandardDistribution]]:
+    """
+    Statically modifies the default values of the controls for the
+    regression fitting algorithm.
+
+    Input:
+        - controls (dict): The overriden controls and their new default values.
+            See Controllable.default_controls().
+
+    Returns:
+        - decorator (method): A distribution class decorator.
+    """
+
+    def decorator(klass: Type[StandardDistribution]) -> Type[StandardDistribution]:
+        klass.regressor_klass = set_controls(**controls)(klass.regressor_klass)
         return klass
 
     return decorator

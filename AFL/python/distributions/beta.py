@@ -1,7 +1,7 @@
 """
 This module implements the beta distribution.
 
-The distributional parameters are alpha (shape) and beta ((shape).
+The distributional parameters are alpha (shape) and beta (shape).
 The link parameter is taken to be eta = log(alpha/beta) = logit(mu),
 which is not a natural parameter. The independent parameter is
 choseen as psi = alpha.

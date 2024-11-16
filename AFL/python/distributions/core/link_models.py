@@ -46,6 +46,44 @@ class LogitLink1(TransformDistribution):
 
 
 ########################################################
+# Logit link model (two parameters):
+
+
+class LogitLink2(TransformDistribution):
+    """
+    Implements a two-parameter logit link model,
+    namely:
+
+           eta = logit(theta) , psi = alpha ;
+        => theta = logistic(eta) , alpha = psi ,
+
+    where the underlying parameter, theta, represents
+    a probability or proportion, and the independent
+    parameter, alpha , represents a rate or count.
+    """
+
+    def check_parameters(self, *params: Values) -> bool:
+        return len(params) == 2 and super().check_parameters(*params)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        theta, alpha = std_params
+        eta = logit(guard_prob(theta))
+        psi = alpha
+        return (eta, psi)
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        eta, psi = alt_params
+        theta = logistic(eta)
+        alpha = psi
+        return (theta, alpha)
+
+    def compute_jacobian(self) -> Values2d:
+        theta, alpha = self.underlying().get_parameters()
+        return ((theta * (1 - theta), 0), (0, 1))
+
+
+
+########################################################
 # Log link model (one parameter):
 
 
@@ -80,7 +118,7 @@ class LogLink1(TransformDistribution):
 
 
 ########################################################
-# Log link models (two parameters):
+# Log-ratio link models (two parameters):
 
 
 class LogRatioLink2a(TransformDistribution):

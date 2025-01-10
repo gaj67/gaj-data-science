@@ -11,10 +11,10 @@ from .data_types import Values, Values2d
 
 
 ########################################################
-# Logit link model (one parameter):
+# Logit link models
 
 
-class LogitLink1(TransformDistribution):
+class LogitLink11(TransformDistribution):
     """
     Implements a one-parameter logit link model,
     namely:
@@ -25,6 +25,9 @@ class LogitLink1(TransformDistribution):
     where the underlying parameter, theta, represents
     a probability or proportion.
     """
+
+    def num_links(self) -> int:
+        return 1
 
     def check_parameters(self, *params: Values) -> bool:
         return len(params) == 1 and super().check_parameters(*params)
@@ -45,11 +48,7 @@ class LogitLink1(TransformDistribution):
         return ((d_theta_d_eta,),)
 
 
-########################################################
-# Logit link model (two parameters):
-
-
-class LogitLink2(TransformDistribution):
+class LogitLink21(TransformDistribution):
     """
     Implements a two-parameter logit link model,
     namely:
@@ -59,8 +58,11 @@ class LogitLink2(TransformDistribution):
 
     where the underlying parameter, theta, represents
     a probability or proportion, and the independent
-    parameter, alpha , represents a rate or count.
+    parameter, alpha, represents a rate or count.
     """
+
+    def num_links(self) -> int:
+        return 1
 
     def check_parameters(self, *params: Values) -> bool:
         return len(params) == 2 and super().check_parameters(*params)
@@ -84,10 +86,10 @@ class LogitLink2(TransformDistribution):
 
 
 ########################################################
-# Log link model (one parameter):
+# Log link models
 
 
-class LogLink1(TransformDistribution):
+class LogLink11(TransformDistribution):
     """
     Implements a one-parameter log link model,
     namely:
@@ -98,6 +100,9 @@ class LogLink1(TransformDistribution):
     where the underlying parameter, lambda, represents
     a positive rate or scale.
     """
+
+    def num_links(self) -> int:
+        return 1
 
     def check_parameters(self, *params: Values) -> bool:
         return len(params) == 1 and super().check_parameters(*params)
@@ -117,11 +122,47 @@ class LogLink1(TransformDistribution):
         return ((_lambda,),)
 
 
+class LogLink22(TransformDistribution):
+    """
+    Implements a two-parameter log link model,
+    namely:
+
+           eta_1 = log(alpha) , eta_2 = log(beta) ;
+        => alpha = exp(eta_1) , beta = exp(eta_2) ,
+
+    where the underlying parameters, alpha and beta, 
+    represent positive rates or scales.
+    """
+
+    def num_links(self) -> int:
+        return 2
+
+    def check_parameters(self, *params: Values) -> bool:
+        return len(params) == 2 and super().check_parameters(*params)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        alpha = guard_pos(std_params[0])
+        beta = guard_pos(std_params[1])
+        eta_1 = np.log(apha)
+        eta_2 = np.log(beta)
+        return (eta_1, eta_2)
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        eta_1, eta_2 = alt_params
+        alpha = np.exp(eta_1)
+        beta = np.exp(eta_2)
+        return (alpha, beta)
+
+    def compute_jacobian(self) -> Values2d:
+        alpha, beta = self.underlying().get_parameters()
+        return ((alpha, 0), (0, beta))
+
+
 ########################################################
 # Log-ratio link models (two parameters):
 
 
-class LogRatioLink2a(TransformDistribution):
+class LogRatioLink21a(TransformDistribution):
     """
     Implements a two-parameter log link function:
 
@@ -132,6 +173,9 @@ class LogRatioLink2a(TransformDistribution):
     represent positive shapes or rates.
     """
 
+    def num_links(self) -> int:
+        return 1
+
     def check_parameters(self, *params: Values) -> bool:
         if len(params) != 2 or not super().check_parameters(*params):
             return False
@@ -139,7 +183,8 @@ class LogRatioLink2a(TransformDistribution):
         return np.all(psi > 0)
 
     def apply_transform(self, *std_params: Values) -> Values:
-        alpha, beta = std_params
+        alpha = guard_pos(std_params[0])
+        beta = guard_pos(std_params[1])
         eta = np.log(alpha / beta)
         psi = alpha
         return (eta, psi)
@@ -155,7 +200,7 @@ class LogRatioLink2a(TransformDistribution):
         return ((0, -beta), (1, beta / alpha))
 
 
-class LogRatioLink2b(TransformDistribution):
+class LogRatioLink21b(TransformDistribution):
     """
     Implements a two-parameter log link function:
 
@@ -166,6 +211,9 @@ class LogRatioLink2b(TransformDistribution):
     represent positive shapes or rates.
     """
 
+    def num_links(self) -> int:
+        return 1
+
     def check_parameters(self, *params: Values) -> bool:
         if len(params) != 2 or not super().check_parameters(*params):
             return False
@@ -173,7 +221,8 @@ class LogRatioLink2b(TransformDistribution):
         return np.all(psi > 0)
 
     def apply_transform(self, *std_params: Values) -> Values:
-        alpha, beta = std_params
+        alpha = guard_pos(std_params[0])
+        beta = guard_pos(std_params[1])
         eta = np.log(alpha / beta)
         psi = beta
         return (eta, psi)
@@ -189,30 +238,34 @@ class LogRatioLink2b(TransformDistribution):
         return ((alpha, 0), (alpha / beta, 1))
 
 
-class LogRatioLink2ab(TransformDistribution):
+class LogRatioLink22(TransformDistribution):
     """
     Implements a two-parameter log link function:
 
-           eta = log(alpha/beta) , psi = log(alpha*beta) ;
-        => alpha = exp((psi+eta)/2) , beta = exp((psi-eta)/2) ,
+           eta_1 = log(alpha/beta) , eta_2 = log(alpha*beta) ;
+        => alpha = exp((eta_2+eta_1)/2) , beta = exp((eta_2-eta_1)/2) ,
 
     where the underlying parameters, alpha and beta,
     represent positive shapes or rates.
     """
 
+    def num_links(self) -> int:
+        return 2
+
     def check_parameters(self, *params: Values) -> bool:
         return len(params) == 2 and super().check_parameters(*params)
 
     def apply_transform(self, *std_params: Values) -> Values:
-        alpha, beta = std_params
-        eta = np.log(alpha / beta)
-        psi = np.log(alpha * beta)
-        return (eta, psi)
+        alpha = guard_pos(std_params[0])
+        beta = guard_pos(std_params[1])
+        eta_1 = np.log(alpha / beta)
+        eta_2 = np.log(alpha * beta)
+        return (eta_1, eta_2)
 
     def invert_transform(self, *alt_params: Values) -> Values:
-        eta, psi = alt_params
-        alpha = np.exp(0.5 * (psi + eta))
-        beta = np.exp(0.5 * (psi - eta))
+        eta_1, eta_2 = eta_1
+        alpha = np.exp(0.5 * (eta_2 + eta_1))
+        beta = np.exp(0.5 * (eta_2 - eta_1))
         return (alpha, beta)
 
     def compute_jacobian(self) -> Values2d:

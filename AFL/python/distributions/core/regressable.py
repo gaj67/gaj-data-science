@@ -32,7 +32,7 @@ from .optimiser import (
     to_data,
 )
 
-from .parameterised import RegressionParameterised
+from .parameterised import RegressionParameters, UNSPECIFIED_VECTOR
 from .fittable import GradientOptimisable
 
 
@@ -54,15 +54,15 @@ def sum_vmm(vec: Vector, mat1: Matrix, mat2: Matrix) -> Matrix:
     """
     return sum(v * np.outer(x, y) for v, x, y in zip(vec, mat1, mat2))
 
-
+    
 ###############################################################################
 # Classes for gradient optimisation with covariates using linear regression:
 
 
-class RegressionOptimisable(RegressionParameterised, Optimisable):
+class RegressionOptimisable(RegressionParameters, Optimisable):
     """
-    An interface for parameter estimation from observed variate and
-    covariate data.
+    An implementation for parameter estimation from observed
+    variate and covariate data.
 
     Assumes the underlying implementation is a regression model
     with its first parameter being a vector of regression weights,
@@ -73,86 +73,128 @@ class RegressionOptimisable(RegressionParameterised, Optimisable):
     annd optimisable.
     """
 
-    # ---------------------------------
-    # RegressionParameterised interface
+    # ------------------------------
+    # RegressionParameters interface
 
-    @abstractmethod
-    def link(self) -> GradientOptimisable:
+    def __init__(self, num_links: int, link_model: GradientOptimisable):
+        """
+        Initialises the regression parameters.
+        
+        Input:
+            - num_links (int): The required number
+                of regression parameters.
+            - link_model (optimisable): The optimisable link model.
+        """
+        RegressionParameters.__init__(self, num_links, link_model)
+
+    def link_model(self) -> GradientOptimisable:
         """
         Obtains the underlying link model.
 
         Returns:
-            - inst (optimisable): The link model.
+            - link_model (optimisable): The link model.
         """
-        raise NotImplementedError
+        return super().link_model()
+
+    # -------------------------------
+    # RegressionOptimisable interface
+
+    def apply_regression(self, covariates: MatrixLike) -> Values:
+        """
+        Computes the regression function(s) and then pushes the
+        resulting link parameter(s) into the underlying distribution.
+
+        Input:
+            - covariates (matrix-like): The covariate value(s).
+        """
+        phis = self.regression_model().get_parameters()
+        num_links = len(phis)
+        if num_links == 0:
+            return
+        vec_len = len(phis[0])
+        for phi in phis:
+            if len(phi) == 0:
+                raise ValueError("Uninitialised regression parameters!")
+            if len(phi) != vec_len:
+                raise ValueError("Incorrectly sized regression parameters!")
+        z = to_matrix(covariates, n_cols=vec_len)
+        etas = [as_value(z @ phi) for phi in phis]
+        psi = self.link_model().get_parameters()[num_links:]
+        self.link_model().set_parameters(*etas, *psi)
 
     # ---------------------
     # Optimisable interface
 
     def compute_estimate(self, data: Data, controls: Controls) -> Values:
-        ind, values = self.link().compute_estimates(data.variate)
+        ind, values = self.link_model().compute_estimates(data.variate)
         if len(values) == 0 or not np.any(ind):
             # No point estimates - use mean estimate and zero weights
-            _, *psi = self.link().compute_estimate(data, controls)
-            phi = np.zeros(data.covariates.shape[1])
-            print(
-                "DEBUG[RegressionOptimisable.compute_estimate]: phi=", phi, "psi=", psi
-            )
+            params = self.link_model().compute_estimate(data, controls)
+            psi = params[self.num_links():]
+            vec_len = data.covariates.shape[1]
+            phis = [np.zeros(vec_len) for _ in range(self.num_links())]
         else:
-            eta, *psi = values
-            print("DEBUG[RegressionOptimisable.compute_estimate]: eta=", eta)
-            # Solve linear regression: Z @ phi = eta
+            # Average point estimates of independent parameters
             w = data.weights[ind]
+            psi = mean_values(w, values[self.num_links():])
+            # Link parameter(s) data estimates
+            etas = values[0:self.num_links()]
+            print("DEBUG[RegressionOptimisable.compute_estimate]: etas=", etas)
             z = data.covariates[ind, :]
             print("DEBUG[RegressionOptimisable.compute_estimate]: z=", z)
             a_mat = sum_vmm(w, z, z)
-            b_vec = (w * eta) @ z
-            phi = solve(a_mat, b_vec)
-            # Average point estimates of independent parameters
-            psi = mean_values(w, psi)
-            print(
-                "DEBUG[RegressionOptimisable.compute_estimate]: phi=", phi, "psi=", psi
-            )
-        return (phi, *psi)
+            # Invert linear regression(s): Z @ phi = eta
+            phis = [solve(a_mat, (w * eta) @ z) for eta in etas]
+        print("DEBUG[RegressionOptimisable.compute_estimate]: phis=", phis)
+        print("DEBUG[RegressionOptimisable.compute_estimate]: psi=", psi)
+        return (*phis, *psi)
 
     def compute_score(self, data: Data, controls: Controls) -> float:
-        self._invert_regression(data.covariates)
-        scores = self.link().compute_scores(data.variate)
+        self.apply_regression(data.covariates)
+        scores = self.link_model().compute_scores(data.variate)
         return mean_value(data.weights, scores)
 
     def compute_update(self, data: Data, controls: Controls) -> Values:
-        self._invert_regression(data.covariates)
-        grads = self.link().compute_gradients(data.variate)
+        self.apply_regression(data.covariates)
+        grads = self.link_model().compute_gradients(data.variate)
         if len(grads) == 0:
             # No update
             return tuple()
-        g_eta, *g_psi = grads
+
+        # Compute means of point gradients of the independent parameters
+        n_links = self.num_links()
+        g_psi = mean_values(data.weights, grads[n_links:])
+        print("DEBUG[RegressionOptimisable.compute_update]: g_psi=", g_psi)
 
         # Map back from eta to phi, i.e. compute <dL/dphi> = <Z dL/deta>
-        tot_weights = np.sum(data.weights)
-        g_phi = (data.weights * g_eta) @ data.covariates / tot_weights
-        g_psi = mean_values(data.weights, g_psi)
-        print(
-            "DEBUG[RegressionOptimisable.compute_update]: g_phi=",
-            g_phi,
-            "g_psi=",
-            g_psi,
-        )
+        g_etas = grads[0:n_links]
+        w = data.weights / np.sum(data.weights)
+        g_phis = [(w * g_eta) @ data.covariates for g_eta in g_etas]
+        print("DEBUG[RegressionOptimisable.compute_update]: g_phis=", g_phis)
 
-        n_hess = self.link().compute_neg_hessian(data.variate)
-        print("DEBUG[RegressionOptimisable.compute_update]: n_hess=", n_hess)
-        if len(n_hess) == 0:
+        neg_hess = self.link_model().compute_neg_hessian(data.variate)
+        print("DEBUG[RegressionOptimisable.compute_update]: n_hess=", neg_hess)
+        if len(neg_hess) == 0:
             # No second derivatives, just use gradient
-            return g_phi, *g_psi
+            return (*g_phis, *g_psi)
 
+        # Compute neg_hess[phi, psi]^-1 * grads[phi, psi]
+        g_phi = UNSPECIFIED_VECTOR if n_links == 0 else np.concatenate(g_phis)
+        d_phi, d_psi = self._compute_modified_gradients(neg_hess, g_phi, g_psi, data)
+        print("DEBUG[RegressionOptimisable.compute_update]: d_phi=", d_phi)
+        print("DEBUG[RegressionOptimisable.compute_update]: d_psi=", d_psi)
+        d_phis = [] if n_links == 0 else np.split(d_phi, n_links)
+        return (*d_phis, *d_psi)
+
+    def _compute_modified_gradients(self, neg_hess: Values2d, g_phi: Vector, g_psi: Vector, data: Data) -> Tuple[Vector, Vector]:
         # Expected value of negative Hessian of link log-likelihood gives:
         #  [ Var[Y_eta]         Cov[Y_eta, Y_psi] ]
         #  [ Cov[Y_psi, Y_eta]  Var[Y_psi]        ]
         # Under regression eta = Z^T phi, this is mapped to:
-        #  [v_phi cov^T] = [Z v_eta Z^T  Z cov_ep]
-        #  [cov   v_psi]   [cov_pe Z^T   v_psi   ]
+        #  [v_phi cov^T] = [<Z v_eta Z^T>  <Z cov_ep>]
+        #  [cov   v_psi]   [<cov_pe Z^T>   <v_psi>   ]
 
-        v_phi, cov, v_psi = self._compute_blocks(n_hess, data)
+        v_phi, cov, v_psi = self._compute_blocks(neg_hess, data)
         print(
             "DEBUG[RegressionOptimisable.compute_update]: v_phi=",
             v_phi,
@@ -162,7 +204,7 @@ class RegressionOptimisable(RegressionParameterised, Optimisable):
             cov,
         )
 
-        # The task now is to solve the matrix equation:
+        # The general task now is to solve the matrix equation:
         #   [v_phi cov^T] * [d_phi] = [g_phi]
         #   [cov   v_psi]   [d_psi]   [g_psi]
         # using block matrix inversion. An answer (for v_phi invertible) is:
@@ -171,64 +213,63 @@ class RegressionOptimisable(RegressionParameterised, Optimisable):
         # where S is the Schur complement:
         #   S = v_psi - cov * v_phi^-1 * cov^T.
 
+        # Check for no link parameters:
+        if v_phi is None:
+            # Inversion step 2: S = v_psi
+            # Inversion step 3: d_psi = S^-1 * g_psi
+            d_psi = solve(v_psi, g_psi)
+            return UNSPECIFIED_VECTOR, d_psi
+
         # Inversion step 1: d_phi' = v_phi^-1 * g_phi
         d_phi = solve(v_phi, g_phi)
-        if len(g_psi) == 0:
-            # No independent parameters, so no d_psi
-            print("DEBUG[RegressionOptimisable.compute_update]: d_phi=", d_phi)
-            return (d_phi,)
+
+        # Check for no independent parameters:
+        if v_psi is None:
+            # Only link parameters
+            return d_phi, UNSPECIFIED_VECTOR
+
         # Inversion step 2: S = v_psi - cov * v_phi^-1 * cov^T
         schur = v_psi - cov @ solve(v_phi, cov.T)
         # Inversion step 3: d_psi = S^-1 * (g_psi - cov * d_phi')
         d_psi = solve(schur, g_psi - cov @ d_phi)
         # Inversion step 4: d_phi = d_phi' - v_phi^-1 * cov^T * d_psi
-        d_phi -= solve(v_phi, d_psi @ cov)
-        print(
-            "DEBUG[RegressionOptimisable.compute_update]: d_phi=",
-            d_phi,
-            "d_psi=",
-            d_psi,
-        )
-        return d_phi, *d_psi
-
-    # -------------------------------
-    # RegressionOptimisable interface
+        d_phi -= solve(v_phi, cov.T @ d_psi)
+        return d_phis, d_psi
 
     def _compute_blocks(
-        self, n_hess: Values2d, data: Data
-    ) -> Tuple[Matrix, Optional[Matrix], Optional[Matrix]]:
-        # Map back from eta to phi
+        self, neg_hess: Values2d, data: Data
+    ) -> Tuple[Optional[Matrix], Optional[Matrix], Optional[Matrix]]:
+        n_links = self.num_links()
+        n_params = len(neg_hess)
+        n_indep = n_params - n_links
+
         n_rows = len(data.variate)
-        # Note: Row 0 gives -d/deta [dL/deta dL/dpsi] = [Var[Y_eta], Cov[Y_eta, Y_psi]]
-        m0 = values_to_matrix(n_hess[0], n_rows)
-        n_cols = m0.shape[1]
-        # Compute variance matrix of Y_phi, i.e. v_phi := <Var[Y_phi]> = <Z Var[Y_eta] Z^T>
         w = data.weights / np.sum(data.weights)
         z = data.covariates
-        v_phi = sum_vmm(w * m0[:, 0], z, z)
-        if n_cols == 1:
-            # No independent parameters, so no cov or v_psi
+
+        # Check for no link parameters:
+        if n_links == 0:
+            # Compute variance matrix of Y_psi, i.e. v_psi := <Var[Y_psi]>
+            v_psi = np.array([(w @ values_to_matrix(r, n_rows)) for r in neg_hess])
+            return None, None, v_psi
+
+        # Check for no independent parameters:
+        if n_indep == 0:
+            # Compute variance matrix of Y_phi, i.e. v_phi := <Var[Y_phi]> = <Z Var[Y_eta] Z^T>
+            v_phis = [[sum_vmm(w * v, z, z) for v in r] for r in neg_hess]
+            v_phi = np.vstack([np.hstack(r) for r in v_phis])
             return v_phi, None, None
-        # Compute covariance matrix, i.e. cov := <Cov[Y_psi, Y_phi]> = <Cov[Y_psi, Y_eta] Z^T>
-        cov = sum_vmm(w, m0[:, 1:], z)
+
+        # Both link parameters and independent parameters:
         # Compute variance matrix of Y_psi, i.e. v_psi := <Var[Y_psi]>
-        v_psi = np.array([(w @ values_to_matrix(r[1:], n_rows)) for r in n_hess[1:]])
+        v_psi = np.array([(w @ values_to_matrix(r[n_links:], n_rows)) for r in neg_hess[n_links:]])
+        # Compute variance matrix of Y_phi, i.e. v_phi := <Var[Y_phi]> = <Z Var[Y_eta] Z^T>
+        v_phis = [[sum_vmm(w * v, z, z) for v in r[0:n_links]] for r in neg_hess[0:n_links]]
+        v_phi = np.vstack([np.hstack(r) for r in v_phis])
+        # Compute covariance matrix, i.e. cov := <Cov[Y_psi, Y_phi]> = <Cov[Y_psi, Y_eta] Z^T>
+        covs = [sum_vmm(w, values_to_matrix(r[n_links:], n_rows), z) for r in neg_hess[0:n_links]]
+        cov = np.hstack(covs)
         return v_phi, cov, v_psi
-
-    def _invert_regression(self, covariates: MatrixLike) -> Values:
-        """
-        Computes the regression function and then pushes the
-        resulting link parameter into the underlying distribution.
-
-        Input:
-            - covariates (matrix-like): The covariate value(s).
-        """
-        phi, *psi = self.get_parameters()
-        if len(phi) == 0:
-            raise ValueError("Uninitialised regression parameters!")
-        z = to_matrix(covariates, n_cols=len(phi))
-        eta = as_value(z @ phi)
-        self.link().set_parameters(eta, *psi)
 
 
 #################################################################

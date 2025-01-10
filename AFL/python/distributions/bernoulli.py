@@ -23,7 +23,7 @@ from .core.data_types import (
 
 from .core.parameterised import UNSPECIFIED_VECTOR, guard_prob
 from .core.distribution import StandardDistribution, set_link
-from .core.link_models import LogitLink1
+from .core.link_models import LogitLink11
 from .core.optimiser import Data, Controls
 
 
@@ -33,7 +33,7 @@ from .core.optimiser import Data, Controls
 DEFAULT_THETA = 0.5
 
 
-@set_link(LogitLink1)
+@set_link(LogitLink11)
 class BernoulliDistribution(StandardDistribution):
     """
     Implements the Bernoulli probability distribution for a binary

@@ -183,6 +183,41 @@ class TransformOptimisable(TransformParameterised, GradientOptimisable):
     By default, no covariate information is used.
     """
 
+    # ------------------------------
+    # TransformOptimisable interface
+
+    def __init__(self, underlying: GradientOptimisable):
+        """
+        Initialises the transormation with the underlying parameters.
+        
+        Input:
+            - underlying (optimisable): The underlying parameters
+                of the untransformed parameter space.
+        """
+        TransformParameterised.__init__(self, underlying)
+
+    def underlying(self) -> GradientOptimisable:
+        """
+        Obtains the underlying optimisable model.
+
+        Returns:
+            - underlying (optimisable): The underlying instance.
+        """
+        return super().underlying()
+
+    @abstractmethod
+    def compute_jacobian(self) -> Values2d:
+        """
+        Computes the Jacobian matrix of the inverse transformation,
+        i.e. the derivatives of the standard parameters (column-wise)
+        with respect to the alternative parameters (row-wise).
+
+        Returns:
+            - jac (matrix-like of scalar or vector): The Jacobian matrix
+                of the inverse transformation.
+        """
+        raise NotImplementedError
+
     # -----------------------------
     # GradientOptimisable interface
 
@@ -217,35 +252,9 @@ class TransformOptimisable(TransformParameterised, GradientOptimisable):
         if len(n_hess) == 0:
             return tuple()
         jac = self.compute_jacobian()
-        # This is an approximation which assumes that
-        # the expectation of any score gradient is zero.
+        # This is an approximation which assumes that the
+        # expectation of any score gradient is identically zero.
         return mult_rmat_rmat(mult_rmat_rmat(jac, n_hess), jac)
-
-    # ------------------------------
-    # TransformOptimisable interface
-
-    @abstractmethod
-    def underlying(self) -> GradientOptimisable:
-        """
-        Obtains the underlying optimisable model.
-
-        Returns:
-            - inst (optimisable): The underlying instance.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def compute_jacobian(self) -> Values2d:
-        """
-        Computes the Jacobian matrix of the inverse transformation,
-        i.e. the derivatives of the standard parameters (column-wise)
-        with respect to the alternative parameters (row-wise).
-
-        Returns:
-            - jac (matrix-like of scalar or vector): The Jacobian matrix
-                of the inverse transformation.
-        """
-        raise NotImplementedError
 
 
 ###############################################################################

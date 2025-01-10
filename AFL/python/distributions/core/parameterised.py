@@ -123,7 +123,7 @@ class Parameterised(ABC):
 
 
 ###############################################################################
-# Base implementation class:
+# Base implementation classes:
 
 
 class Parameters(Parameterised):
@@ -151,9 +151,43 @@ class Parameters(Parameterised):
 
     def set_parameters(self, *params: Values):
         if not self.check_parameters(*params):
-            print("DEBUG[Parameters.set_parameters]: params=", params)
             raise ValueError("Invalid parameters!")
         self._params = params
+
+
+# Indicates that the vector size is not yet specified
+UNSPECIFIED_VECTOR = np.array([])
+
+
+class VectorParameters(Parameters):
+    """
+    Implements a holder of a vector parameters.
+    """
+
+    def __init__(self, num_params: int):
+        """
+        Initialises space for the specified number
+        of vector parameters.
+        
+        Input:
+            - num_params (int): The required number
+                of vector parameters.
+        """
+        if num_params < 0:
+            raise ValueError("Number of parameters must be non-negative!")
+        self._num_params = num_params
+        Parameters.__init__(self)
+        
+    def default_parameters(self) -> Values:
+        return tuple([UNSPECIFIED_VECTOR] * self._num_params)
+
+    def check_parameters(self, *params) -> bool:
+        if len(params) != self._num_params:
+            return False
+        for v in params:
+            if not is_vector(v) or is_divergent(v):
+                return False
+        return True
 
 
 ###############################################################################
@@ -162,31 +196,23 @@ class Parameters(Parameterised):
 
 class TransformParameterised(Parameterised):
     """
-    Interface for an invertible transformation between a standard parameter
-    space and an alternative parameter space.
+    A partial implementation of an invertible transformation between
+    a standard parameter space and an alternative parameter space.
     """
-
-    # -----------------------
-    # Parameterised interface
-
-    def default_parameters(self) -> Values:
-        std_params = self.underlying().default_parameters()
-        return self.apply_transform(*std_params)
-
-    def get_parameters(self) -> Values:
-        std_params = self.underlying().get_parameters()
-        return self.apply_transform(*std_params)
-
-    def set_parameters(self, *params: Values):
-        if not self.check_parameters(*params):
-            raise ValueError("Invalid parameters!")
-        std_params = self.invert_transform(*params)
-        self.underlying().set_parameters(*std_params)
 
     # ------------------------------
     # TransformParameterised interface
 
-    @abstractmethod
+    def __init__(self, underlying: Parameterised):
+        """
+        Initialises the transormation with the underlying parameters.
+        
+        Input:
+            - underlying (parameterised): The underlying parameters
+                of the standard parameter space.
+        """
+        self._underlying = underlying
+
     def underlying(self) -> Parameterised:
         """
         Obtains the underlying parameterised model.
@@ -194,7 +220,7 @@ class TransformParameterised(Parameterised):
         Returns:
             - inst (parameterised): The underlying instance.
         """
-        raise NotImplementedError
+        return self._underlying
 
     @abstractmethod
     def apply_transform(self, *std_params: Values) -> Values:
@@ -228,6 +254,23 @@ class TransformParameterised(Parameterised):
         """
         raise NotImplementedError
 
+    # -----------------------
+    # Parameterised interface
+
+    def default_parameters(self) -> Values:
+        std_params = self.underlying().default_parameters()
+        return self.apply_transform(*std_params)
+
+    def get_parameters(self) -> Values:
+        std_params = self.underlying().get_parameters()
+        return self.apply_transform(*std_params)
+
+    def set_parameters(self, *params: Values):
+        if not self.check_parameters(*params):
+            raise ValueError("Invalid parameters!")
+        std_params = self.invert_transform(*params)
+        self.underlying().set_parameters(*std_params)
+
 
 ###############################################################################
 # Interface for regression:
@@ -237,95 +280,94 @@ class TransformParameterised(Parameterised):
 DEFAULT_LINK = 0.0
 
 
-class RegressionParameterised(Parameterised):
+class RegressionParameters(Parameterised):
     """
-    An interface for accessing the regression parameters and
-    associated independent parameters of a regression model.
+    An implementation for accessing regression parameters and
+    associated independent parameters.
 
     It is assumed that there are two underlying models.
     The regression model contains the regression parameters.
-    The link model contains the link parameter as first parameter,
-    followed by any independent parameters.
+    The link model contains the link parameters followed by
+    any independent parameters.
 
-    The link parameter, eta, and regression parameters, phi,
-    are assumed to be directly related by a regression function
-    of the covariates, Z, namely: eta = f(Z, phi).
+    Each scalar link parameter, eta, and corresponding
+    vector regression parameter, phi, are assumed to be
+    directly related by a regression function of the
+    covariates, Z, namely: eta = f(Z, phi).
     Although this function is not used explicitly here, we do
     make use of the assumption that f(Z, 0) = 0.
     """
 
-    # -----------------------
-    # Parameterised interface
+    # ------------------------------
+    # RegressionParameters interface
 
-    def default_parameters(self) -> Values:
-        phi = self.regression().default_parameters()[0]
-        psi = self.link().default_parameters()[1:]
-        return (phi, *psi)
+    def __init__(self, num_links: int, link_model: Parameterised):
+        """
+        Initialises the regression model parameters.
+        
+        Input:
+            - num_links (int): The required number
+                of regression parameters.
+            - link_model (parameterised): The underlying link model.
+        """
+        self._num_links = num_links
+        self._regression_parameters = VectorParameters(num_links)
+        self._link_model = link_model
 
-    def get_parameters(self) -> Values:
-        phi = self.regression().get_parameters()[0]
-        psi = self.link().get_parameters()[1:]
-        return (phi, *psi)
-
-    def set_parameters(self, *params: Values):
-        if not self.check_parameters(*params):
-            print("DEBUG[RegressionParameterised.set_parameters]: params=", params)
-            raise ValueError("Invalid parameters!")
-        phi, *psi = params
-        self.regression().set_parameters(phi)
-        self.link().set_parameters(DEFAULT_LINK, *psi)
-
-    def check_parameters(self, *params: Values) -> bool:
-        # Must have at least one parameter!
-        if len(params) == 0:
-            return False
-        phi, *psi = params
-        if not self.regression().check_parameters(phi):
-            return False
-        return self.link().check_parameters(DEFAULT_LINK, *psi)
-
-    # ---------------------------------
-    # RegressionParameterised interface
-
-    @abstractmethod
-    def regression(self) -> Parameterised:
+    def regression_model(self) -> Parameterised:
         """
         Obtains the underlying regression model.
 
         Returns:
             - regression (parameterised): The regression model.
         """
-        raise NotImplementedError
+        return self._regression_parameters
 
-    @abstractmethod
-    def link(self) -> Parameterised:
+    def link_model(self) -> Parameterised:
         """
         Obtains the underlying link model.
 
         Returns:
-            - link (parameterised): The link model.
+            - link_model (parameterised): The link model.
         """
-        raise NotImplementedError
+        return self._link_model
 
+    def num_links(self) -> int:
+        """
+        Obtains the number of regressable link parameters of
+        the underlying link model.
 
-###############################################################################
-# Base class for regression:
+        Returns:
+            - num_links (int): The number of link parameters.
+        """
+        return self._num_links
 
+    # -----------------------
+    # Parameterised interface
 
-# Indicates that the vector size is not yet specified
-UNSPECIFIED_VECTOR = np.array([])
+    def default_parameters(self) -> Values:
+        phis = self.regression_model().default_parameters()
+        psi = self.link_model().default_parameters()[self.num_links():]
+        return (*phis, *psi)
 
+    def get_parameters(self) -> Values:
+        phis = self.regression_model().get_parameters()
+        psi = self.link_model().get_parameters()[self.num_links():]
+        return (*phis, *psi)
 
-class OneVectorParameters(Parameters):
-    """
-    Implements a holder of a single vector of parameters.
-    """
+    def set_parameters(self, *params: Values):
+        if not self.check_parameters(*params):
+            raise ValueError("Invalid parameters!")
+        phis = params[0:self._num_links]
+        psi = params[self._num_links:]
+        self.regression_model().set_parameters(*phis)
+        etas = [DEFAULT_LINK] * self.num_links()
+        self.link_model().set_parameters(*etas, *psi)
 
-    def default_parameters(self):
-        return (UNSPECIFIED_VECTOR,)
-
-    def check_parameters(self, *params):
-        if len(params) != 1:
+    def check_parameters(self, *params: Values) -> bool:
+        phis = params[0:self.num_links()]
+        psi = params[self.num_links():]
+        if not self.regression_model().check_parameters(*phis):
             return False
-        phi = params[0]
-        return is_vector(phi) and not is_divergent(phi)
+        etas = [DEFAULT_LINK] * self.num_links()
+        return self.link_model().check_parameters(*etas, *psi)

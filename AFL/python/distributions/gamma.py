@@ -26,8 +26,8 @@ from .core.data_types import (
     mean_value,
 )
 
-from .core.distribution import StandardDistribution, set_link
-from .core.link_models import LogRatioLink2b
+from .core.distribution import StandardDistribution, set_link_model
+from .core.link_models import LogRatioLink21b
 from .core.optimiser import Data, Controls
 
 
@@ -40,7 +40,7 @@ DEFAULT_ALPHA = 1
 DEFAULT_BETA = 1
 
 
-@set_link(LogRatioLink2b)
+@set_link_model(LogRatioLink21b)
 class GammaDistribution(StandardDistribution):
     """
     Implements the gamma probability distribution for a non-negative
@@ -181,3 +181,23 @@ if __name__ == "__main__":
     gr = GammaDistribution().regressor()
     res = gr.fit(X, Z)
     assert res["converged"]
+
+    # Test regression with only bias
+    Z0 = [1] * len(X)
+    gr = GammaDistribution().regressor()
+    res = gr.fit(X, Z0)
+    wvec, b = gr.get_parameters()
+    w = wvec[0]
+    gd = GammaDistribution()
+    res = gd.fit(X)
+    a0, b0 = gd.get_parameters()
+    w0 = np.log(a0 / b0)
+    assert np.abs(w - w0) < 1e-15
+    assert np.abs(b - b0) < 1e-15
+    a1, b1 = gr.link_model().invert_transform(w, b)
+    assert np.abs(a1 - a0) < 1e-15
+    assert np.abs(b1 - b0) < 1e-15
+    w2, b2 = gr.link_model().apply_transform(a1, b1)
+    assert np.abs(w - w2) < 1e-15
+    assert np.abs(b - b2) < 1e-15
+    print("Passed bias-only regression tests!")

@@ -93,12 +93,12 @@ class BaseDistribution(Distribution, GradientOptimisable, Fittable):
     # ---------------------------------------------
     # Interface required for RegressionDistribution
     
-    def link(self) -> BaseDistribution:
+    def link_model(self) -> BaseDistribution:
         """
         Obtains the link distribution used for regression.
 
         Returns:
-            - link (distribution): The link distribution.
+            - link_model (distribution): The link distribution.
         """
         return self
 
@@ -231,7 +231,7 @@ class RegressionDistribution(
     # -------------------------------
     # RegressionOptimisable interface
 
-    def __init__(self, link: BaseDistribution):
+    def __init__(self, link_model: BaseDistribution):
         """
         Initialises the conditional distribution using a regression model
         with an underlying link distribution.
@@ -244,9 +244,9 @@ class RegressionDistribution(
         followed by the remaining independent parameters, if any.
 
         Input:
-            - link (distribution): The underlying link distribution.
+            - link_model (distribution): The underlying link distribution.
         """
-        RegressionOptimisable.__init__(self, link.num_links(), link)
+        RegressionOptimisable.__init__(self, link_model.num_links(), link_model)
 
     def link_model(self) -> BaseDistribution:
         """
@@ -301,14 +301,14 @@ class StandardDistribution(Parameters, BaseDistribution):
         Returns:
             - regressor (distribution): The regression distribution.
         """
-        return self.regressor_klass(self.link())
+        return self.regressor_klass(self.link_model())
 
 
 ###############################################################################
 # Decorators for specifying the link model:
 
 
-def add_link(
+def add_link_model(
     link_klass: Type[TransformDistribution],
 ) -> Callable[[Type[StandardDistribution]], Type[StandardDistribution]]:
     """
@@ -322,19 +322,19 @@ def add_link(
     """
 
     def decorator(klass: Type[StandardDistribution]) -> Type[StandardDistribution]:
-        _link_fn = klass.link
+        _link_fn = klass.link_model
 
-        def link(self) -> BaseDistribution:
+        def link_model(self) -> BaseDistribution:
             return link_klass(_link_fn(self))
 
-        klass.link = link
-        klass.link.__doc__ = _link_fn.__doc__
+        klass.link_model = link_model
+        klass.link_model.__doc__ = _link_fn.__doc__
         return klass
 
     return decorator
 
 
-def set_link(
+def set_link_model(
     link_klass: Type[TransformDistribution],
 ) -> Callable[[Type[StandardDistribution]], Type[StandardDistribution]]:
     """
@@ -348,13 +348,13 @@ def set_link(
     """
 
     def decorator(klass: Type[StandardDistribution]) -> Type[StandardDistribution]:
-        _link_fn = klass.link
+        _link_fn = klass.link_model
 
-        def link(self) -> BaseDistribution:
+        def link_model(self) -> BaseDistribution:
             return link_klass(self)
 
-        klass.link = link
-        klass.link.__doc__ = _link_fn.__doc__
+        klass.link_model = link_model
+        klass.link_model.__doc__ = _link_fn.__doc__
         return klass
 
     return decorator

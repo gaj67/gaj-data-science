@@ -22,7 +22,7 @@ from .core.data_types import (
 )
 
 from .core.parameterised import UNSPECIFIED_VECTOR, guard_prob
-from .core.distribution import StandardDistribution, set_link
+from .core.distribution import StandardDistribution, set_link_model
 from .core.link_models import LogitLink11
 from .core.optimiser import Data, Controls
 
@@ -33,7 +33,7 @@ from .core.optimiser import Data, Controls
 DEFAULT_THETA = 0.5
 
 
-@set_link(LogitLink11)
+@set_link_model(LogitLink11)
 class BernoulliDistribution(StandardDistribution):
     """
     Implements the Bernoulli probability distribution for a binary
@@ -156,3 +156,18 @@ if __name__ == "__main__":
     mu_m1 = br.mean(-1)
     assert np.abs(mu_m1 - np.mean(Xm1)) < 1e-6
     print("Passed fitting grouped observations tests!")
+
+    # Test regression with only bias
+    br = BernoulliDistribution().regressor()
+    res = br.fit(Xp1, Zp1)
+    w = br.get_parameters()[0][0]
+    bd = BernoulliDistribution()
+    res = bd.fit(Xp1)
+    t0 = bd.get_parameters()[0]
+    w0 = np.log(t0 / (1 - t0))
+    assert np.abs(w - w0) < 1e-15
+    t = br.link_model().invert_transform(w)[0]
+    assert np.abs(t - t0) < 1e-15
+    w1 = br.link_model().apply_transform(t)[0]
+    assert np.abs(w - w1) < 1e-15
+    print("Passed bias-only regression tests!")

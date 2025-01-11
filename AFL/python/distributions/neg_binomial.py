@@ -35,8 +35,8 @@ from .core.data_types import (
 )
 
 from .core.parameterised import guard_prob
-from .core.distribution import StandardDistribution, set_link
-from .core.link_models import LogitLink2
+from .core.distribution import StandardDistribution, set_link_model
+from .core.link_models import LogitLink21
 from .core.optimiser import set_controls
 
 
@@ -49,7 +49,7 @@ DEFAULT_THETA = 0.5
 DEFAULT_ALPHA = 1
 
 
-@set_link(LogitLink2)
+@set_link_model(LogitLink21)
 @set_controls(max_iters=1000)
 class NegBinomialDistribution(StandardDistribution):
     """
@@ -165,3 +165,23 @@ if __name__ == "__main__":
     assert res["converged"]
     assert nr.mean(1) > nr.mean(-1)
     print("Passed two-group regression tests!")
+
+    # Test regression with only bias
+    Z0 = [1] * len(X)
+    nr = NegBinomialDistribution().regressor()
+    res = nr.fit(X, Z0)
+    wvec, a = nr.get_parameters()
+    w = wvec[0]
+    nd = NegBinomialDistribution()
+    res = nd.fit(X)
+    t0, a0 = nd.get_parameters()
+    w0 = np.log(t0 / (1 - t0))
+    assert np.abs(w - w0) < 1e-9
+    assert np.abs(a - a0) < 1e-9
+    t1, a1 = nr.link_model().invert_transform(w, a)
+    assert np.abs(t1 - t0) < 1e-9
+    assert np.abs(a1 - a0) < 1e-9
+    w2, a2 = nr.link_model().apply_transform(t1, a1)
+    assert np.abs(w - w2) < 1e-9
+    assert np.abs(a - a2) < 1e-9
+    print("Passed bias-only regression tests!")

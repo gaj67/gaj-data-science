@@ -234,7 +234,7 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
         d_psi = solve(schur, g_psi - cov @ d_phi)
         # Inversion step 4: d_phi = d_phi' - v_phi^-1 * cov^T * d_psi
         d_phi -= solve(v_phi, cov.T @ d_psi)
-        return d_phis, d_psi
+        return d_phi, d_psi
 
     def _compute_blocks(
         self, neg_hess: Values2d, data: Data

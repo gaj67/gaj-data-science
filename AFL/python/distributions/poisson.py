@@ -22,8 +22,8 @@ from .core.data_types import (
 )
 
 from .core.parameterised import UNSPECIFIED_VECTOR
-from .core.distribution import StandardDistribution, set_link
-from .core.link_models import LogLink1
+from .core.distribution import StandardDistribution, set_link_model
+from .core.link_models import LogLink11
 
 
 #################################################################
@@ -33,7 +33,7 @@ from .core.link_models import LogLink1
 DEFAULT_LAMBDA = 1.0
 
 
-@set_link(LogLink1)
+@set_link_model(LogLink11)
 class PoissonDistribution(StandardDistribution):
     """
     Implements the Poisson probability distribution for a binary
@@ -150,8 +150,8 @@ if __name__ == "__main__":
     Zp1 = [1] * len(Xp1)
     Xm1 = np.array(Xp1) / np.mean(Xp1) ** 2
     Zm1 = [-1] * len(Xm1)
-    X = np.concat((Xp1, Xm1))
-    Z = np.concat((Zp1, Zm1))
+    X = np.concatenate((Xp1, Xm1))
+    Z = np.concatenate((Zp1, Zm1))
     res = pr.fit(X, Z, score_tol=1e-12)
     assert res["converged"]
     mu_p1 = pr.mean(1)
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     pr = PoissonDistribution().regressor()
     Zp1 = [(1, 1)] * len(Xp1)
     Zm1 = [(1, -1)] * len(Xm1)
-    Z = np.concat((Zp1, Zm1))
+    Z = np.concatenate((Zp1, Zm1))
     res = pr.fit(X, Z, score_tol=1e-12)
     assert res["converged"]
     phi0 = pr.get_parameters()[0][0]
@@ -173,3 +173,19 @@ if __name__ == "__main__":
     mu_m1 = pr.mean([1, -1])
     assert np.abs(mu_m1 - np.mean(Xm1)) < 1e-5
     print("Passed fitting multiple regression tests!")
+
+    # Test regression with only bias
+    Z0 = [1] * len(X)
+    pr = PoissonDistribution().regressor()
+    res = pr.fit(X, Z0)
+    w = pr.get_parameters()[0][0]
+    pd = PoissonDistribution()
+    res = pd.fit(X)
+    l0 = pd.get_parameters()[0]
+    w0 = np.log(l0)
+    assert np.abs(w - w0) < 1e-15
+    l1 = pr.link_model().invert_transform(w)[0]
+    assert np.abs(l1 - l0) < 1e-15
+    w1 = pr.link_model().apply_transform(l1)[0]
+    assert np.abs(w - w1) < 1e-15
+    print("Passed bias-only regression tests!")

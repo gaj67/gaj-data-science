@@ -91,7 +91,6 @@ class GammaDistribution(StandardDistribution):
         alpha = ((3 - s) + np.sqrt((3 - s) ** 2 + 24 * s)) / (12 * s)
         beta = alpha / m
         if self.check_parameters(alpha, beta):
-            print("DEBUG[nonlinear]: alpha=", alpha, "beta=", beta)
             return (alpha, beta)
         # Method of moments
         m2 = mean_value(data.weights, data.variate**2)
@@ -99,12 +98,10 @@ class GammaDistribution(StandardDistribution):
         alpha = m**2 / v
         beta = m / v
         if self.check_parameters(alpha, beta):
-            print("DEBUG[moments]: alpha=", alpha, "beta=", beta)
             return (alpha, beta)
         # Mean approximation
         alpha = DEFAULT_ALPHA
         beta = alpha / m
-        print("DEBUG[backoff]: alpha=", alpha, "beta=", beta)
         return (alpha, beta)
 
     def compute_scores(self, variate: Vector) -> Vector:
@@ -145,7 +142,6 @@ if __name__ == "__main__":
     X = np.array([1.0, 10])
     gd = GammaDistribution()
     res = gd.fit(X)
-    print("DEBUG: gd.mean=", gd.mean(), "np.mean=", np.mean(X))
     assert np.abs(gd.mean() - np.mean(X)) < 1e-6
     print("Passed fitting simple observations test!")
 
@@ -165,7 +161,6 @@ if __name__ == "__main__":
     # Test fitting multiple observations
     for n in range(2, 11):
         X = np.random.randint(1, 100, n) * 0.1
-        print("DEBUG[gammma]: X=", X)
         gd = GammaDistribution()
         res = gd.fit(X)
         assert np.abs(gd.mean() - np.mean(X)) < 1e-6

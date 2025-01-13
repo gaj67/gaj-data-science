@@ -143,7 +143,7 @@ class LogLink22(TransformDistribution):
     def apply_transform(self, *std_params: Values) -> Values:
         alpha = guard_pos(std_params[0])
         beta = guard_pos(std_params[1])
-        eta_1 = np.log(apha)
+        eta_1 = np.log(alpha)
         eta_2 = np.log(beta)
         return (eta_1, eta_2)
 

@@ -139,14 +139,10 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
             psi = mean_values(w, values[self.num_links():])
             # Link parameter(s) data estimates
             etas = values[0:self.num_links()]
-            print("DEBUG[RegressionOptimisable.compute_estimate]: etas=", etas)
             z = data.covariates[ind, :]
-            print("DEBUG[RegressionOptimisable.compute_estimate]: z=", z)
             a_mat = sum_vmm(w, z, z)
             # Invert linear regression(s): Z @ phi = eta
             phis = [solve(a_mat, (w * eta) @ z) for eta in etas]
-        print("DEBUG[RegressionOptimisable.compute_estimate]: phis=", phis)
-        print("DEBUG[RegressionOptimisable.compute_estimate]: psi=", psi)
         return (*phis, *psi)
 
     def compute_score(self, data: Data, controls: Controls) -> float:
@@ -164,16 +160,13 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
         # Compute means of point gradients of the independent parameters
         n_links = self.num_links()
         g_psi = mean_values(data.weights, grads[n_links:])
-        print("DEBUG[RegressionOptimisable.compute_update]: g_psi=", g_psi)
 
         # Map back from eta to phi, i.e. compute <dL/dphi> = <Z dL/deta>
         g_etas = grads[0:n_links]
         w = data.weights / np.sum(data.weights)
         g_phis = [(w * g_eta) @ data.covariates for g_eta in g_etas]
-        print("DEBUG[RegressionOptimisable.compute_update]: g_phis=", g_phis)
 
         neg_hess = self.link_model().compute_neg_hessian(data.variate)
-        print("DEBUG[RegressionOptimisable.compute_update]: n_hess=", neg_hess)
         if len(neg_hess) == 0:
             # No second derivatives, just use gradient
             return (*g_phis, *g_psi)
@@ -181,8 +174,6 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
         # Compute neg_hess[phi, psi]^-1 * grads[phi, psi]
         g_phi = UNSPECIFIED_VECTOR if n_links == 0 else np.concatenate(g_phis)
         d_phi, d_psi = self._compute_modified_gradients(neg_hess, g_phi, g_psi, data)
-        print("DEBUG[RegressionOptimisable.compute_update]: d_phi=", d_phi)
-        print("DEBUG[RegressionOptimisable.compute_update]: d_psi=", d_psi)
         d_phis = [] if n_links == 0 else np.split(d_phi, n_links)
         return (*d_phis, *d_psi)
 
@@ -195,14 +186,6 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
         #  [cov   v_psi]   [<cov_pe Z^T>   <v_psi>   ]
 
         v_phi, cov, v_psi = self._compute_blocks(neg_hess, data)
-        print(
-            "DEBUG[RegressionOptimisable.compute_update]: v_phi=",
-            v_phi,
-            "v_psi=",
-            v_psi,
-            "cov=",
-            cov,
-        )
 
         # The general task now is to solve the matrix equation:
         #   [v_phi cov^T] * [d_phi] = [g_phi]

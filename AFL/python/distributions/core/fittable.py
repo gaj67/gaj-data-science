@@ -65,9 +65,7 @@ class GradientOptimisable(Optimisable):
         n_hess = self.compute_neg_hessian(data.variate)
         if len(n_hess) == 0:
             return tuple(grad)
-        print("DEBUG[GradientOptimisable.compute_update]: before - n_hess=", n_hess)
         n_hess = np.array([mean_values(data.weights, r) for r in n_hess])
-        print("DEBUG[GradientOptimisable.compute_update]: after - n_hess=", n_hess)
         return tuple(solve(n_hess, grad))
 
     # -----------------------------

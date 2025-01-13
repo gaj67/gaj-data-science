@@ -79,7 +79,6 @@ class BernoulliDistribution(StandardDistribution):
 
     def compute_estimate(self, data: Data, controls: Controls) -> Values:
         theta = guard_prob(mean_value(data.weights, data.variate))
-        print("DEBUG[BernoulliDistribution.compute_estimates]: theta=", theta)
         return (theta,)
 
     def compute_scores(self, variate: Vector) -> Vector:

@@ -25,8 +25,8 @@ from .core.data_types import (
 )
 
 from .core.parameterised import guard_prob
-from .core.distribution import StandardDistribution, set_link
-from .core.link_models import LogRatioLink2a
+from .core.distribution import StandardDistribution, set_link_model
+from .core.link_models import LogLink22
 
 
 #################################################################
@@ -38,7 +38,7 @@ DEFAULT_ALPHA = 1
 DEFAULT_BETA = 1
 
 
-@set_link(LogRatioLink2a)
+@set_link_model(LogLink22)
 class BetaDistribution(StandardDistribution):
     """
     Implements the beta probability distribution for a proportional
@@ -86,8 +86,9 @@ class BetaDistribution(StandardDistribution):
     def compute_estimates(self, variate: Vector) -> Values:
         # Backoff estimate based only on mean
         x = guard_prob(variate)
-        beta = DEFAULT_BETA
-        alpha = beta * x / (1 - x)
+        t = (DEFAULT_ALPHA + DEFAULT_BETA) * x - DEFAULT_ALPHA
+        alpha = DEFAULT_ALPHA + t
+        beta = DEFAULT_BETA - t
         ind = np.ones(len(variate), dtype=bool)
         return ind, (alpha, beta)
 
@@ -133,19 +134,24 @@ if __name__ == "__main__":
     assert np.abs(_alpha - _beta) < 1e-6
     print("Passed simple fitting test!")
 
-    # Test same data via regression - means are complementary
+    # Test regression on two groups - means are complementary
+    # NOTE: Regression on X=[0.25, 0.75] with Z=[-1, 1] converges to incorrect means!
+    # Regression with Z=[(1,-1), (1,1)] diverges!
+    Xm1 = [0.2, 0.3]  # mean 0.25
+    Xp1 = [0.7, 0.8]  # mean 0.75
+    X = Xm1 + Xp1
+    # NOTE: Regression with Z = [-1, -1, 1, 1] converges to incorrect means!
+    Zm1 = [(1, -1)] * len(Xm1)
+    Zp1 = [(1, 1)] * len(Xp1)
+    Z = Zm1 + Zp1
     br = BetaDistribution().regressor()
-    Z = [-1, 1]
-    try:
-        res = br.fit(X, Z)
-    except ValueError:
-        print("Two sample regression failed to converge!")
-        res = br.fit(X, Z, max_iters=0)
-    for _x, _z in zip(X, Z):
-        _mu = br.mean(_z)
-        assert np.abs(_mu - _x) < 1e-6
-    print("Passed divergent regression test!")
-
+    res = br.fit(X, Z)
+    assert res["converged"]
+    mum1 = br.mean(Zm1[0])
+    assert np.abs(mum1 - np.mean(Xm1)) < 1e-4
+    mup1 = br.mean(Zp1[0])
+    assert np.abs(mup1 - np.mean(Xp1)) < 1e-4
+    
     # Test regression on two groups - means are NOT complementary
     Xm1 = [0.1, 0.2, 0.3]  # mean 0.2
     Xp1 = [0.6, 0.7, 0.8]  # mean 0.7
@@ -157,7 +163,25 @@ if __name__ == "__main__":
     res = br.fit(X, Z)
     assert res["converged"]
     mum1 = br.mean(Zm1[0])
-    assert np.abs(mum1 - np.mean(Xm1)) < 1e-2
+    assert np.abs(mum1 - np.mean(Xm1)) < 1e-3
     mup1 = br.mean(Zp1[0])
-    assert np.abs(mup1 - np.mean(Xp1)) < 1e-1
-    print("Passed two-group regression test!")
+    assert np.abs(mup1 - np.mean(Xp1)) < 1e-3
+    print("Passed two-group regression tests!")
+
+    # Test regression with only bias
+    Z0 = [1] * len(X)
+    br = BetaDistribution().regressor()
+    res = br.fit(X, Z0)
+    phi1, phi2 = br.get_parameters()
+    w1 = phi1[0]
+    w2 = phi2[0]
+    bd = BetaDistribution()
+    res = bd.fit(X)
+    a0, b0 = bd.get_parameters()
+    a1, b1 = br.link_model().invert_transform(w1, w2)
+    assert np.abs(a1 - a0) < 1e-12
+    assert np.abs(b1 - b0) < 1e-12
+    eta1, eta2 = br.link_model().apply_transform(a1, b1)
+    assert np.abs(eta1 - w1) < 1e-15
+    assert np.abs(eta2 - w2) < 1e-15
+    print("Passed bias-only regression tests!")

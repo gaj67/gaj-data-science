@@ -158,6 +158,49 @@ class LogLink22(TransformDistribution):
         return ((alpha, 0), (0, beta))
 
 
+class LogLinkn2(TransformDistribution):
+    """
+    Implements a two-parameter log link model,
+    namely:
+
+           eta_1 = log(alpha) , eta_2 = log(beta) ;
+        => alpha = exp(eta_1) , beta = exp(eta_2) ,
+
+    where the underlying parameters, alpha and beta, 
+    represent positive rates or scales.
+    
+    Any remaining parameters are simply passed through
+    as independent parameters, psi.
+    """
+
+    def num_links(self) -> int:
+        return 2
+
+    def check_parameters(self, *params: Values) -> bool:
+        return len(params) >= 2 and super().check_parameters(*params)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        alpha = guard_pos(std_params[0])
+        beta = guard_pos(std_params[1])
+        psi = std_params[2:]
+        eta_1 = np.log(alpha)
+        eta_2 = np.log(beta)
+        return (eta_1, eta_2, *psi)
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        eta_1, eta_2, *psi = alt_params
+        alpha = np.exp(eta_1)
+        beta = np.exp(eta_2)
+        return (alpha, beta, *psi)
+
+    def compute_jacobian(self) -> Values2d:
+        alpha, beta, *psi = self.underlying().get_parameters()
+        jac = np.eye(len(psi) + 2)
+        jac[0, 0] = alpha
+        jac[1, 1] = beta
+        return tuple(tuple(row) for row in jac)
+
+
 ########################################################
 # Log-ratio link models (two parameters):
 
@@ -271,3 +314,71 @@ class LogRatioLink22(TransformDistribution):
     def compute_jacobian(self) -> Values2d:
         alpha, beta = self.underlying().get_parameters()
         return ((0.5 * alpha, -0.5 * beta), (0.5 * alpha, 0.5 * beta))
+
+
+########################################################
+# Special link models
+
+
+class SwapLink20(TransformDistribution):
+    """
+    Implements a special link model that simply swaps
+    the order of parameters, namely:
+
+           psi1 = beta ; psi2 = alpha
+        => alpha = psi2; beta = psi1
+
+    where the underlying parameters are alpha and beta.
+    
+    It is assumed that neither parameter is intrinsically
+    a link parameter. To change this behaviour, use 
+    core.distribution.add_link_model() to add another
+    link model over this one.
+    """
+
+    def num_links(self) -> int:
+        return 0
+
+    def check_parameters(self, *params: Values) -> bool:
+        return len(params) == 2 and super().check_parameters(*params)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        alpha, beta = std_params
+        psi1 = beta
+        psi2 = alpha
+        return (psi1, psi2)
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        psi1, psi2 = alt_params
+        alpha = psi2
+        beta = psi1
+        return (alpha, beta)
+
+    def compute_jacobian(self) -> Values2d:
+        return ((0, 1), (1, 0))
+
+
+class ReverseLinkn0(TransformDistribution):
+    """
+    Implements a special link model that simply reverses
+    the order of parameters.
+    
+    It is assumed that neither parameter is intrinsically
+    a link parameter. To change this behaviour, use 
+    core.distribution.add_link_model() to add another
+    link model over this one.
+    """
+
+    def num_links(self) -> int:
+        return 0
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        return tuple(reversed(std_params))
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        return tuple(reversed(alt_params))
+
+    def compute_jacobian(self) -> Values2d:
+        std_params = self.underlying().get_parameters()
+        jac = np.eye(len(std_params))[:, ::-1]
+        return tuple(tuple(row) for row in jac)

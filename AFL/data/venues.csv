@@ -1,7 +1,8 @@
-venue,from,to,latitude,longitude,ground,suburb,state,aliases
+venue,from,to,latitude,longitude,ground,suburb_or_town,state,aliases
 "Adelaide Oval",2011,,-34.9156,138.5961,"Adelaide Oval","Adelaide","SA",
+"Barossa Oval",2025,,-34.597939,138.885835,"Lyndoch Recreation Park","Lyndoch","SA","Barossa Park"
 "Bellerive Oval",2012,2019,-42.8773,147.3735,"Bellerive Oval","Bellerive","TAS","Blundstone Arena"
-"Blacktown",2012,2012,-33.769444,150.859167,"Blacktown International Sportspark Oval","Rooty Hill","NSW","Blacktown ISP Oval; Blacktown ISP"
+"Blacktown",2012,2012,-33.769444,150.859167,"Blacktown International Sportspark Oval","Rooty Hill","NSW","Blacktown ISP Oval;Blacktown ISP"
 "Bruce Stadium",1995,1995,-35.25,149.102778,"Canberra Stadium","Bruce","ACT","GIO Stadium Canberra;GIO Stadium;Bruce Stadium;National Athletics Stadium"
 "Carrara",1987,,-28.0063,153.3669,"Carrara Stadium","Gold Coast","QLD",
 "Cazaly's Stadium",2011,,-16.9358,145.7492,"Cazaly's Stadium","Westcourt","QLD",
@@ -9,6 +10,7 @@ venue,from,to,latitude,longitude,ground,suburb,state,aliases
 "Eureka Stadium",2017,2019,-37.53841,143.84803,"Eureka Stadium","Wendouree","VIC","Mars Stadium;Northern Oval #1;AUSTAR Arena"
 "Football Park",1991,2013,-34.88,138.495556,"Football Park","West Lakes","SA","AAMI Stadium"
 "Gabba",1981,,-27.4859,153.0381,"Brisbane Cricket Ground","Brisbane","QLD",
+"Hands Oval",2024,,-33.346111,115.642778,"JE Hands Memorial Park","Bunbury","WA","South Bunbury Showgrounds"
 "Jiangwan Stadium",2017,2019,31.3068,121.5154,"Jiangwan Stadium","Yangpu District","Shanghai","Shanghai Stadium"
 "Kardinia Park",1941,,-38.158056,144.354722,"Kardinia Park","South Geelong","VIC","GMHBA Stadium;Skilled Stadium;Shell Stadium;Baytec Stadium;Simonds Stadium"
 "Manuka Oval",1998,2019,-35.318102,149.134598,"Manuka Oval","Griffith","ACT","UNSW Canberra Oval;StarTrack Oval"

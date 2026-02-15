@@ -6,6 +6,7 @@ from typing import Optional, List, Tuple
 from numpy import ndarray
 from numpy.typing import ArrayLike
 import numpy as np
+import scipy.stats as sci_stats
 import warnings
 
 
@@ -213,7 +214,9 @@ def summarise_bins(bins: List[ndarray]) -> Tuple:
 
 
 def summarise_data(
-    X: ArrayLike, Y: ArrayLike, weights: Optional[ArrayLike] = None
+    X: ArrayLike, Y: ArrayLike = None,
+    weights: Optional[ArrayLike] = None, 
+    num_bins: int = 20, return_vars: bool = False
 ) -> Tuple:
     """
     Performs standardised binning of the data with respect to the x-variate,
@@ -221,22 +224,30 @@ def summarise_data(
 
     Inputs:
         - X (array-like): The x-variate.
-        - Y (array-like): The y-variate.
+        - Y (array-like): The optional y-variate.
         - weights (array-like): The optional weights of the data.
             If these are not provided, then every point is weighted equally.
+        - num_bins (int): The number of partitions.
+        - return_vars (bool): An optional flag indicating whether to return
+            variances (if True) or standard errors (if False).
+            Defaults to False.
     Returns:
         - n_points (ndarray of int): The number of points in each bin.
         - x_means (ndarray of float): The mean of the x-variate in each bin.
         - y_means (ndarray of float): The mean of the y-variate in each bin.
-        - x_se (ndarray of float): The standard error of the x-variate in each bin.
-        - y_se (ndarray of float): The standard error of the y-variate in each bin.
+        - x_se | x_vars (ndarray of float): The standard error or variance of the x-variate in each bin.
+        - y_se | y_vars (ndarray of float): The standard error or variance of the y-variate in each bin.
     """
     if weights is None:
         weights = np.ones(len(X))
+    if Y is None:
+        Y = np.zeros(len(X))
     data = np.column_stack([X, Y, weights])
-    bins = partition_points(data)
+    bins = partition_points(data, num_bins = num_bins)
     bins = aggregate_bins(bins)
     n_points, x_means, y_means, x_vars, y_vars = summarise_bins(bins)
+    if return_vars:
+        return n_points, x_means, y_means, x_vars, y_vars
     x_se = np.sqrt(x_vars / n_points)
     y_se = np.sqrt(y_vars / n_points)
     return n_points, x_means, y_means, x_se, y_se
@@ -326,3 +337,110 @@ def binary_accuracy(
         return np.mean(S)
     else:
         return np.mean(S * weights) / np.mean(weights)
+
+
+def uniform_bootstraps(data: ArrayLike, stats_fn, num_bootstraps: int = 100, proportion: float = 1) -> ndarray:
+    """
+    Creates bootstrap samples by uniform resampling of the data.
+    For each bootstrap sample, the required statistics are computed.
+    
+    Inputs:
+        - data (array-like): The collection of N data from which to resample.
+        - stats_fn (function): A function to compute an S-tuple of statistics
+            from a given bootstrap sample.
+        - num_bootstraps (int): The number B of bootstrap samples.
+        - proportion (int): The proportion p of data to resample for
+            each bootstrap sample.
+    Returns:
+        - bootstraps (ndarray): The B x S array of bootstrap statistics.
+    """
+    data = np.asarray(data)
+    N = len(data)
+    M = int(proportion * N)
+    bootstraps = [None] * num_bootstraps
+    for i in range(num_bootstraps):
+        idx = np.random.randint(N, size = M)
+        bootstraps[i] = stats_fn(data[idx])
+    return np.array(bootstraps)
+
+
+def ranged_bootstraps(data: ArrayLike, stats_fn, num_bootstraps: int = 100, min_data: int = 10) -> ndarray:
+    """
+    Creates bootstrap samples by resampling from random ranges of the data.
+    For each bootstrap sample, the required statistics are computed.
+    
+    Inputs:
+        - data (array-like): The collection of N data from which to resample.
+        - stats_fn (function): A function to compute an S-tuple of statistics
+            from a given bootstrap sample.
+        - num_bootstraps (int): The number B of bootstrap samples.
+        - min_data (int): The minimum size of a viable bootstrap sample.
+    Returns:
+        - bootstraps (ndarray): The B x S array of bootstrap statistics.
+    """
+    L, U = min(data), max(data)
+    bootstraps = [None] * num_bootstraps
+    i = 0
+    while i < num_bootstraps:
+        p1 = np.random.randint(L, U)
+        p2 = np.random.randint(L, U)
+        if p1 == p2:
+            # Reject the sample
+            continue
+        ind = (data >= min(p1, p2)) & (data <= max(p1, p2))
+        if sum(ind) < min_data:
+            # Reject the sample
+            continue
+        bootstraps[i] = stats_fn(data[ind])
+        i += 1
+    return np.array(bootstraps)
+
+
+def negative_binomial_bootstraps(num_trials: int, num_events: int, num_bootstraps: int) -> ndarray:
+    """
+    Creates bootstrap samples of Bernoulli trials using negative binomial resampling.
+    The proportion of special events in each bootstrap sample is then computed.
+    
+    Consider a notional collection of N = X + S Bernoulli trials containing S special events, 
+    e.g. "successes" or "failures", such that the empirical probability of a special event
+    is Y = S / N. Each bootstrap sample is obtained by repeated resampling with
+    replacement, using the probability Y, until S special events have been attained.
+    For the ith bootstrap sample, there will be a total of N_i = X_i + S resamples, giving
+    an estimated proportion of Y_i = S / N_i.
+    
+    Inputs:
+        - num_trials (int): The number of trials.
+        - num_events (int): The number of special events.
+        - num_bootstraps (int): The number of bootstrap samples.
+    Returns:
+        - proportions (ndarray of float): The proportion of special events in each
+            bootstrap sample.
+    """
+    p_event = num_events / num_trials
+    bootstrap_trials = sci_stats.nbinom.rvs(
+        num_events, p_event, size=num_bootstraps
+    )
+    return num_events / (bootstrap_trials + num_events)
+
+
+def negative_binomial_densities(num_trials: int, num_events: int, proportions: ndarray) -> ndarray:
+    """
+    Creates approximate probability density values of estimated proportions using a continuous
+    transformation of the negative binomial distribution.
+    
+    If X + N is the total number of trials required to attain N special events (inclusive),
+    then the estimated proportion of events is Y = N / (X + N), such that X = N * (1 - Y) / Y.
+    The Jacobian of the transformation is |dY/dX| = N / (X + N)**2 = Y**2 / N.
+    
+    Inputs:
+        - num_trials (int): The number of trials.
+        - num_events (int): The number of special events.
+        - proportions (ndarray of float): Estimates of the proportion of special events.
+    Returns:
+        - densities (ndarray of float): The approximate density of each estimate.
+    """
+    variates = np.round(num_events * (1 - proportions) / proportions)
+    jacobian =  proportions**2 / num_events
+    p_event = num_events / num_trials
+    p = sci_stats.nbinom.pmf(variates, num_events, p_event) / jacobian
+    return p

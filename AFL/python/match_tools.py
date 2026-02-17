@@ -15,6 +15,7 @@ from graph_analysis import flow_prestige, adjusted_scores
 
 TIMESTAMP = "timestamp"
 HASH = "hash"
+COARSE_RANK_LIMITS = np.array([0.25, 0.5 , 0.75, 1.0])
 
 
 ###################################################
@@ -171,6 +172,9 @@ def add_rank_features(df_features):
     Inputs:
         - df_features (DataFrame): The pre-initialised features.
     """
+    def coarse_rank_fn(rank_score: float) -> int:
+        return np.argwhere(1 - rank_score <= COARSE_RANK_LIMITS)[0][0] + 1
+
     points = 4 * df_features.wins + 2 * df_features.draws
     per = 100 * df_features.points_for / df_features.points_against
     df = pd.concat([points, per], axis=1, ignore_index=True)
@@ -181,6 +185,7 @@ def add_rank_features(df_features):
     df_features["rank"] = ranks = df["rank"].values
     scale = -1.0 / (len(df) - 1)
     df_features["rank_score"] = scale * (ranks - 1.0) + 1.0
+    df_features["coarse_rank"] = df_features["rank_score"].apply(coarse_rank_fn)
 
 
 def compute_loss_rate_graph(teams, df_matches, for_var, against_var):

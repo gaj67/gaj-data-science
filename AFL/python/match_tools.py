@@ -466,3 +466,14 @@ def get_match_score(match, is_for):
         return match.for_total_score
     else:
         return match.against_total_score
+
+
+def get_seasonal_features(df_seasonal, match, is_for, is_prev = True):
+    team = get_match_team(match, is_for)
+    res = df_seasonal[
+        (df_seasonal.team == team)
+        & (df_seasonal.season == match.season - int(is_prev))
+    ]
+    if len(res) == 0:
+        return None
+    return next(res.itertuples())

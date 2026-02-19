@@ -101,6 +101,38 @@ def fit_linear(x, y, weights=None):
     return alpha, beta
 
 
+def add_intercept(column, *columns) -> ndarray:
+    """
+    Wraps the given vector(s) into a column matrix suitable for covariates
+    in a regression model. The first column is an additional unit vector
+    representing an intercept or bias term.
+
+    Inputs:
+        - column (array-like): The values of the first covariate.
+        - columns (tuple of array-like): The optional values of subsequent
+            covariates.
+    Returns:
+        - matrix (ndarray): The two-dimensional covariate matrix.
+    """
+    const = np.ones(len(column))
+    return np.stack((const, column) + columns, axis=1)
+
+
+def no_intercept(column, *columns) -> ndarray:
+    """
+    Wraps the given vector(s) into a column matrix suitable for covariates
+    in a regression model. No intercept or bias term is added.
+
+    Inputs:
+        - column (array-like): The values of the first covariate.
+        - columns (tuple of array-like): The optional values of subsequent
+            covariates.
+    Returns:
+        - matrix (ndarray): The two-dimensional covariate matrix.
+    """
+    return np.stack((column,) + columns, axis=1)
+
+
 def partition_points(
     data: ndarray, num_bins: int = 20, axis: int = 0, adj: float = 1e-3
 ) -> List[ndarray]:

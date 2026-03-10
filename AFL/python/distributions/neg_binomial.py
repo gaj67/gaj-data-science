@@ -35,8 +35,8 @@ from .core.data_types import (
 )
 
 from .core.parameterised import guard_prob
-from .core.distribution import StandardDistribution, set_link_model
-from .core.link_models import LogitLink21
+from .core.distribution import StandardDistribution, add_link_model, set_link_model
+from .core.link_models import SwapLink20, LogitLink21
 from .core.optimiser import set_controls
 
 
@@ -49,7 +49,8 @@ DEFAULT_THETA = 0.5
 DEFAULT_ALPHA = 1
 
 
-@set_link_model(LogitLink21)
+@add_link_model(LogitLink21)  # logit theta = f(Z)
+@set_link_model(SwapLink20)   # Swap order of alpha and theta
 @set_controls(max_iters=1000)
 class NegBinomialDistribution(StandardDistribution):
     """
@@ -57,37 +58,37 @@ class NegBinomialDistribution(StandardDistribution):
     for an integer (count) response variate, X.
     """
 
-    def __init__(self, theta: Value = DEFAULT_THETA, alpha: Value = DEFAULT_ALPHA):
+    def __init__(self, alpha: Value = DEFAULT_ALPHA, theta: Value = DEFAULT_THETA):
         """
         Initialises the negative binomial distribution(s).
 
         Input:
-            - theta (scalar or vector): The event probability value(s).
             - alpha (scalar or vector): The required event count value(s).
+            - theta (scalar or vector): The event probability value(s).
         """
-        super().__init__(theta, alpha)
+        super().__init__(alpha, theta)
 
     # -----------------------
     # Parameterised interface
 
     def default_parameters(self) -> Values:
-        return (DEFAULT_THETA, DEFAULT_ALPHA)
+        return (DEFAULT_ALPHA, DEFAULT_THETA)
 
     def check_parameters(self, *params: Values) -> bool:
         if len(params) != 2 or not super().check_parameters(*params):
             return False
-        theta, alpha = params
-        return np.all(theta > 0) and np.all(theta < 1) and np.all(alpha > 0)
+        alpha, theta = params
+        return np.all(alpha > 0) and np.all(theta > 0) and np.all(theta < 1)
 
     # ----------------------
     # Distribution interface
 
     def mean(self) -> Value:
-        theta, alpha = self.get_parameters()
+        alpha, theta = self.get_parameters()
         return alpha * (1 - theta) / theta
 
     def variance(self) -> Value:
-        theta, alpha = self.get_parameters()
+        alpha, theta = self.get_parameters()
         return alpha * (1 - theta) / theta**2
 
     # -----------------------------
@@ -98,10 +99,10 @@ class NegBinomialDistribution(StandardDistribution):
         ind = variate > 0
         alpha = DEFAULT_ALPHA
         theta = alpha / (alpha + variate[ind])
-        return ind, (theta, alpha)
+        return ind, (alpha, theta)
 
     def compute_scores(self, variate: Vector) -> Vector:
-        theta, alpha = self.get_parameters()
+        alpha, theta = self.get_parameters()
         return (
             loggamma(alpha + variate)
             - loggamma(alpha)
@@ -111,21 +112,23 @@ class NegBinomialDistribution(StandardDistribution):
         )
 
     def compute_gradients(self, variate: Vector) -> Values:
-        # grad = (dL/d alpha, dL/d beta)
-        theta, alpha = self.get_parameters()
+        # grad = (dL/d alpha, dL/d theta)
+        alpha, theta = self.get_parameters()
         y_theta = -variate / (1 - theta)
         mu_theta = -alpha / theta  # E[Y_theta]
         y_alpha = digamma(alpha + variate)
         mu_alpha = digamma(alpha) - np.log(theta)  # E[Y_alpha]
-        return (y_theta - mu_theta, y_alpha - mu_alpha)
+        return (y_alpha - mu_alpha, y_theta - mu_theta)
 
     def compute_neg_hessian(self, variate: Vector) -> Values2d:
-        theta, alpha = self.get_parameters()
+        # hess = [(d^L/d alpha^2, d^L/d alpha.d theta),
+        #         (d^L/d theta.d alpha, d^L/d theta^2)]
+        alpha, theta = self.get_parameters()
         v_theta = alpha / (theta**2 * (1 - theta))  # Var[Y_theta]
         # Use mean field approximation
         v_alpha = polygamma(1, alpha) - polygamma(1, alpha / theta)  # Var[Y_alpha]
         cov_ta = -1 / theta  # Cov[Y_theta, Y_alpha]
-        return ((v_theta, cov_ta), (cov_ta, v_alpha))
+        return ((v_alpha, cov_ta), (cov_ta, v_theta))
 
 
 ###############################################################################
@@ -134,7 +137,7 @@ class NegBinomialDistribution(StandardDistribution):
 if __name__ == "__main__":
     # Test default parameter
     nd = NegBinomialDistribution()
-    assert nd.get_parameters() == (DEFAULT_THETA, DEFAULT_ALPHA)
+    assert nd.get_parameters() == (DEFAULT_ALPHA, DEFAULT_THETA)
     print("Passed default parameter tests!")
 
     # Test fitting multiple observations
@@ -174,7 +177,7 @@ if __name__ == "__main__":
     w = wvec[0]
     nd = NegBinomialDistribution()
     res = nd.fit(X)
-    t0, a0 = nd.get_parameters()
+    a0, t0 = nd.get_parameters()
     w0 = np.log(t0 / (1 - t0))
     assert np.abs(w - w0) < 1e-9
     assert np.abs(a - a0) < 1e-9

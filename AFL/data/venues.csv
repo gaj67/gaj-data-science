@@ -18,7 +18,7 @@ venue,from,to,latitude,longitude,ground,suburb_or_town,state,aliases
 "M.C.G.",1897,,-37.8200,144.9832,"Melbourne Cricket Ground","Melbourne","VIC",
 "Moorabbin Oval",1965,1992,-37.9375,145.0439,"Moorabbin Oval","Moorabbin","VIC","RSEA Safety Park;RSEA Park"
 "North Hobart",1952,1992,-42.867778,147.315833,"North Hobart Oval","North Hobart","TAS",
-"Norwood Oval",2024,2024,-34.918496326 138.6249975,"Norwood Oval","Norwood","SA","Coopers Stadium"
+"Norwood Oval",2024,2024,-34.918496326,138.6249975,"Norwood Oval","Norwood","SA","Coopers Stadium"
 "Perth Stadium",2018,,-31.951111,115.889028,"Perth Stadium","Burswood","WA","Optus Stadium"
 "Princes Park",1897,2005,-37.7839,144.9617,"Princes Park","Carlton","VIC","Ikon Park;Visy Park;MC Labour Park;Optus Oval;Carlton Recreation Ground"
 "Riverway Stadium",2019,2019,-19.317222,146.731667,"Riverway Stadium","Townsville","QLD","Tony Ireland Stadium;Pioneer Park"

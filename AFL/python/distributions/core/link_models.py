@@ -11,6 +11,40 @@ from .data_types import Values, Values2d
 
 
 ########################################################
+# Identity link models
+
+
+class IdentityLinkn1(TransformDistribution):
+    """
+    Implements a one-parameter link model,
+    namely:
+
+           eta_1 = alpha ;
+        => alpha = eta_1 .
+
+    Any remaining parameters are simply passed through
+    as independent parameters, psi.
+    """
+
+    def num_links(self) -> int:
+        return 1
+
+    def check_parameters(self, *params: Values) -> bool:
+        return len(params) >= 1 and super().check_parameters(*params)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        return std_params
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        return alt_params
+
+    def compute_jacobian(self) -> Values2d:
+        params = self.underlying().get_parameters()
+        jac = np.eye(len(params))
+        return tuple(tuple(row) for row in jac)
+
+
+########################################################
 # Logit link models
 
 

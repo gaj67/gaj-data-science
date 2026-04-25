@@ -103,7 +103,7 @@ def get_team_matches(df_matches, team, season=None, timestamp=None):
     return df_matches[ind]
 
 
-def get_previous_matches(df_matches, match, is_for):
+def get_previous_matches(df_matches, match, is_for, within_season=True):
     """
     Obtains all matches prior to the specified match that
     were played by a given team within a given season.
@@ -115,12 +115,15 @@ def get_previous_matches(df_matches, match, is_for):
         - match (Pandas): The current match.
         - is_for (bool): Indicates whether to extract matches
             for the 'for' team (True) or the 'against' team (False).
+        - within_season (bool): Indicates whether to extract only matches
+            within the cuurrent season (True) or all previous matches (False).
     Returns:
         - (DataFrame): The previous team matches within the season.
     """
     team = get_match_team(match, is_for)
     ts = getattr(match, TIMESTAMP)
-    return get_team_matches(df_matches, team, match.season, ts)
+    season = match.season if within_season else None
+    return get_team_matches(df_matches, team, season, ts)
 
 
 def get_previous_match(df_matches, match, is_for):
@@ -143,6 +146,19 @@ def get_previous_match(df_matches, match, is_for):
     if len(df) == 0:
         return None
     return next(df.iloc[-1:, :].itertuples())
+
+
+def get_minor_rounds(df_matches):
+    """
+    Extracts the minor-round matches.
+
+    Inputs:
+        - df_matches (DataFrame): The historical matches.
+    Returns:
+        - df_minor (DataFrame): The minor-round matches.
+    """
+    ind = df_matches['round'].str.startswith('R')
+    return df_matches[ind]
 
 
 ###############################################

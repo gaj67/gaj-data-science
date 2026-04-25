@@ -1,29 +1,29 @@
-team,nickname,from,to,state,venue
-Adelaide,Adelaide Crows,1991,,SA,Football Park
-Brisbane Bears,Brisbane Bears,1987,1992,QLD,Carrara
-Brisbane Bears,Brisbane Bears,1993,1996,QLD,Gabba
-Brisbane Lions,Brisbane Lions,1997,,QLD,Gabba
-Carlton,Carlton Blues,,,VIC,Princes Park
-Collingwood,Collingwood Magpies,,1999,VIC,Victoria Park
-Collingwood,Collingwood Magpies,2000,,VIC,AIA Centre
-Essendon,Essendon Bombers,,2012,VIC,Windy Hill
-Essendon,Essendon Bombers,2013,,VIC,The Hangar
-Fitzroy,Fitzroy Lions,,1996,VIC,Brunswick Street Oval
-Footscray,Footscray Bulldogs,,1996,VIC,Western Oval
-Fremantle,Fremantle Dockers,1995,2017,WA,Subiaco
-Fremantle,Fremantle Dockers,2018,,WA,Perth Stadium
-Geelong,Geelong Cats,,,VIC,Kardinia Park
-Gold Coast,Gold Coast Suns,2011,,QLD,Carrara
-Greater Western Sydney,GWS Giants,2012,,NSW,Showground
-Hawthorn,Hawthorn Hawks,,2024,VIC,Waverly Park
-Hawthorn,Hawthorn Hawks,2025,,VIC,Kennedy Community Centre
-Melbourne,Melbourne Demons,,,VIC,M.C.G.
-North Melbourne,North Melbourne Kangaroos,,1998,VIC,Arden Street Oval
-Kangaroos,North Melbourne Kangaroos,1999,2007,VIC,Arden Street Oval
-North Melbourne,North Melbourne Kangaroos,2008,,VIC,Arden Street Oval
-Port Adelaide,Port Power,1997,,SA,Alberton Oval
-Richmond,Richmond Tigers,,,VIC,Punt Road Oval
-St Kilda,St Kilda Saints,,,VIC,Moorabbin Oval
-Sydney,Sydney Swans,1982,,NSW,S.C.G.
-West Coast,West Coast Eagles,1987,,WA,Lathlain Park
-Western Bulldogs,Western Bulldogs,1997,,VIC,Western Oval
+team,nickname,from,to,venue
+Adelaide,Adelaide Crows,1991,,Football Park
+Brisbane Bears,Brisbane Bears,1987,1992,Carrara
+Brisbane Bears,Brisbane Bears,1993,1996,Gabba
+Brisbane Lions,Brisbane Lions,1997,,Gabba
+Carlton,Carlton Blues,,,Princes Park
+Collingwood,Collingwood Magpies,,1999,Victoria Park
+Collingwood,Collingwood Magpies,2000,,AIA Centre
+Essendon,Essendon Bombers,,2012,Windy Hill
+Essendon,Essendon Bombers,2013,,The Hangar
+Fitzroy,Fitzroy Lions,,1996,Brunswick Street Oval
+Footscray,Footscray Bulldogs,,1996,Western Oval
+Fremantle,Fremantle Dockers,1995,2017,Subiaco
+Fremantle,Fremantle Dockers,2018,,Perth Stadium
+Geelong,Geelong Cats,,,Kardinia Park
+Gold Coast,Gold Coast Suns,2011,,Carrara
+Greater Western Sydney,GWS Giants,2012,,Showground
+Hawthorn,Hawthorn Hawks,,2024,Waverley Park
+Hawthorn,Hawthorn Hawks,2025,,Kennedy Community Centre
+Melbourne,Melbourne Demons,,,M.C.G.
+North Melbourne,North Melbourne Kangaroos,,1998,Arden Street Oval
+Kangaroos,North Melbourne Kangaroos,1999,2007,Arden Street Oval
+North Melbourne,North Melbourne Kangaroos,2008,,Arden Street Oval
+Port Adelaide,Port Power,1997,,Alberton Oval
+Richmond,Richmond Tigers,,,Punt Road Oval
+St Kilda,St Kilda Saints,,,Moorabbin Oval
+Sydney,Sydney Swans,1982,,S.C.G.
+West Coast,West Coast Eagles,1987,,Lathlain Park
+Western Bulldogs,Western Bulldogs,1997,,Western Oval

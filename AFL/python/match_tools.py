@@ -256,20 +256,20 @@ def get_match_score(match, is_for):
 
 def get_match_features(df_features, match, is_for):
     """
-    Obtains the (precomputed) summary features of matches prior
-    to the specified match, that were played by a given team.
+    Obtains the features, pre-computed  prior to the
+    specified match, that were played by a given team.
 
     Assumes that add_hash() has already been called on both
     the features and the matches.
 
     Inputs:
-        - df_features (DataFrame): The precomputed match features.
-        - match (Pandas): The current match.
-        - is_for (bool): Indicates whether to extract features
-            for the 'for' team (True) or the 'against' team (False).
+      - df_features (DataFrame): The pre-computed match features.
+      - match (Pandas): The current match.
+      - is_for (bool): Indicates whether to extract features
+          for the 'for' team (True) or the 'against' team (False).
     Returns:
-        - (Pandas): The team features, or a value of None if there
-            are no features avaialble.
+      - (Pandas): The team features, or a value of None if there
+          are no features avaialble.
     """
     prefix = "for_" if is_for else "against_"
     df = df_features[df_features[HASH] == getattr(match, prefix + HASH)]
@@ -278,7 +278,44 @@ def get_match_features(df_features, match, is_for):
     return next(df.itertuples())
 
 
+def iter_match_features(df_matches, df_features):
+    """
+    Iterates over each match, giving the pre-computed
+    features, prior to the match, for both teams.
+
+    Assumes that add_hash() has already been called on both
+    the features and the matches.
+
+    Inputs:
+      - df_matches (DataFrame): The historical matches.
+      - df_features (DataFrame): The pre-computed match features.
+    Returns:
+        - (iter of tuple): An iterator over tuples of results,
+            giving the match, the 'for' team features (or None),
+            and the 'against' team features (or None).
+    """
+    for match in df_matches.itertuples():
+        for_features = get_match_features(df_features, match, is_for=True)
+        against_features = get_match_features(df_features, match, is_for=False)
+        yield match, for_features, against_features
+
+
 def get_seasonal_features(df_seasonal, match, is_for, is_prev = True):
+    """
+    Obtains the end-of-season features for the given team.
+
+    Inputs:
+      - df_seasonal (DataFrame): The pre-computed seasonal features.
+      - match (Pandas): The current match.
+      - is_for (bool): Indicates whether to extract features
+          for the 'for' team (True) or the 'against' team (False).
+      - is_prev (bool): Indicates whether to obtain the features
+          from the previous season (True) or the current season (False).
+          By default, the previous season is assumed.
+    Returns:
+      - (Pandas): The team features, or a value of None if there
+          are no features avaialble.
+    """
     team = get_match_team(match, is_for)
     res = df_seasonal[
         (df_seasonal.team == team)
@@ -287,3 +324,29 @@ def get_seasonal_features(df_seasonal, match, is_for, is_prev = True):
     if len(res) == 0:
         return None
     return next(res.itertuples())
+
+
+def iter_seasonal_features(df_matches, df_seasonal, is_prev = True):
+    """
+    Iterates over each match, giving the pre-computed
+    features, prior to the match, for both teams.
+
+    Inputs:
+      - df_matches (DataFrame): The historical matches.
+      - df_seasonal (DataFrame): The pre-computed seasonal features.
+      - is_prev (bool): Indicates whether to obtain the features
+          from the previous season (True) or the current season (False).
+          By default, the previous season is assumed.
+    Returns:
+        - (iter of tuple): An iterator over tuples of results,
+            giving the match, the 'for' team features (or None),
+            and the 'against' team features (or None).
+    """
+    for match in df_matches.itertuples():
+        for_features = get_seasonal_features(
+            df_seasonal, match, True, is_prev
+        )
+        against_features = get_seasonal_features(
+          df_seasonal, match, False, is_prev
+        )
+        yield match, for_features, against_features

@@ -1,5 +1,5 @@
 """
-This module provides some simple tools for statistical analysis and model fitting.
+This module provides some simple tools for statistical analysis.
 """
 
 from typing import Optional, List, Tuple

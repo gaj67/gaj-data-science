@@ -192,6 +192,43 @@ class LogLink22(TransformDistribution):
         return ((alpha, 0), (0, beta))
 
 
+class LogLink21(TransformDistribution):
+    """
+    Implements a two-parameter log model, where
+    only the first parameter is linked to regression.
+    The transformation is:
+
+           eta_1 = log(alpha) , eta_2 = log(beta) ;
+        => alpha = exp(eta_1) , beta = exp(eta_2) ,
+
+    where the underlying parameters, alpha and beta, 
+    represent positive rates or scales.
+    """
+
+    def num_links(self) -> int:
+        return 1
+
+    def check_parameters(self, *params: Values) -> bool:
+        return len(params) == 2 and super().check_parameters(*params)
+
+    def apply_transform(self, *std_params: Values) -> Values:
+        alpha = guard_pos(std_params[0])
+        beta = guard_pos(std_params[1])
+        eta_1 = np.log(alpha)
+        eta_2 = np.log(beta)
+        return (eta_1, eta_2)
+
+    def invert_transform(self, *alt_params: Values) -> Values:
+        eta_1, eta_2 = alt_params
+        alpha = np.exp(eta_1)
+        beta = np.exp(eta_2)
+        return (alpha, beta)
+
+    def compute_jacobian(self) -> Values2d:
+        alpha, beta = self.underlying().get_parameters()
+        return ((alpha, 0), (0, beta))
+
+
 class LogLinkn2(TransformDistribution):
     """
     Implements a two-parameter log link model,

@@ -23,8 +23,8 @@ from .core.data_types import (
     Vector,
 )
 
-from .core.distribution import StandardDistribution, set_link
-from .core.link_models import LogRatioLink2a
+from .core.distribution import StandardDistribution, set_link_model
+from .core.link_models import LogRatioLink21b
 
 
 #################################################################
@@ -36,7 +36,7 @@ DEFAULT_ALPHA = 1
 DEFAULT_BETA = 1
 
 
-@set_link(LogRatioLink2a)
+@set_link_model(LogRatioLink21b)
 class BetaBernoulliDistribution(StandardDistribution):
     """
     Implements the beta-Bernoulli probability distribution for a

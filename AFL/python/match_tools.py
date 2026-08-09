@@ -195,7 +195,7 @@ def get_match_result(match, is_for: bool) -> int:
     return res
 
 
-def get_match_proportion(match, is_for: bool) -> float:
+def get_match_indicator(match, is_for: bool) -> float:
     """
     Encodes the match result for the specified team as
     1 for a win, 0 for a loss, and 0.5 for a draw.

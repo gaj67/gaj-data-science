@@ -9,9 +9,10 @@ The link parameters are chosen as eta1 = log(beta) and
 eta2 = log(alpha). The independent parameter is
 chosen to be psi = n. 
 """
+# pylint: disable=wrong-import-position
 
 import numpy as np
-from scipy.special import loggamma, digamma, polygamma
+from scipy.special import loggamma, digamma  # pylint: disable=no-name-in-module
 
 
 if __name__ == "__main__":
@@ -21,6 +22,7 @@ if __name__ == "__main__":
 
 
 from .core.data_types import (
+    Data,
     Value,
     Values,
     Vector,
@@ -28,8 +30,7 @@ from .core.data_types import (
 
 from .core.distribution import StandardDistribution, set_link_model, add_link_model
 from .core.link_models import ReverseLinkn0, LogLinkn2
-from .core.optimiser import Data, Controls
-from .core.data_types import Values, Values2d
+from .core.controllable import Controls
 
 
 #################################################################
@@ -41,12 +42,16 @@ DEFAULT_ALPHA = 1
 DEFAULT_BETA = 1
 
 
-def log_choose(n: Value, m: Value) -> Value:
-    return loggamma(n + 1) - loggamma(m + 1) - loggamma(n - m + 1)
+def log_choose(num: Value, denom: Value) -> Value:
+    """
+    Generalised logarithm of the from-N choose-M function.
+    """
+    return loggamma(num + 1) - loggamma(denom + 1) - loggamma(num - denom + 1)
 
 
 @add_link_model(LogLinkn2)  # (eta1, eta2, psi) = (log(beta), log(alpha), n)
 @set_link_model(ReverseLinkn0)  # (n, alpha, beta) <-> (beta, alpha, n)
+# pylint: disable=too-many-ancestors
 class BetaBinomialDistribution(StandardDistribution):
     """
     Implements the binomial probability distribution for a non-negative
@@ -57,19 +62,24 @@ class BetaBinomialDistribution(StandardDistribution):
     probability that any given trial is a 'success'.
     """
 
-    def __init__(self, n: int, alpha: Value = DEFAULT_ALPHA, beta: Value = DEFAULT_BETA):
+    def __init__(
+        self, num_trials: int, alpha: Value = DEFAULT_ALPHA, beta: Value = DEFAULT_BETA
+    ):
         """
         Initialises the beta-binomial distribution(s).
 
         Input:
-            - n (int): The number of trials.
+            - num_trials (int): The fixed number of trials.
             - alpha (float or ndarray): The prior number of 'successes'.
             - beta (float or ndarray): The prior number of 'failures'.
         """
-        super().__init__(n, alpha, beta)
+        super().__init__(num_trials, alpha, beta)
 
     # -----------------------
     # Parameterised interface
+
+    def num_parameters(self) -> int:
+        return 2
 
     def default_parameters(self) -> Values:
         return (0, DEFAULT_ALPHA, DEFAULT_BETA)
@@ -77,59 +87,43 @@ class BetaBinomialDistribution(StandardDistribution):
     def check_parameters(self, *params: Values) -> bool:
         if len(params) != 3 or not super().check_parameters(*params):
             return False
-        n, alpha, beta = params
-        return (n > 0) and np.all(alpha > 0) and np.all(beta > 0)
+        num_trials, alpha, beta = params
+        return (num_trials > 0) and np.all(alpha > 0) and np.all(beta > 0)
 
     # ----------------------
     # Distribution interface
 
     def mean(self) -> Value:
-        n, alpha, beta = self.get_parameters()
-        return n * alpha / (alpha + beta)
+        num_trials, alpha, beta = self.get_parameters()
+        return num_trials * alpha / (alpha + beta)
 
     def variance(self) -> Value:
-        n, alpha, beta = self.get_parameters()
-        mu = alpha / (alpha + beta)
-        sigsq = mu * (1 - mu) / (alpha + beta + 1)
-        return n * mu * (1 - mu) + n * (n -  1) * sigsq
+        num_trials, alpha, beta = self.get_parameters()
+        mean = alpha / (alpha + beta)
+        sigsq = mean * (1 - mean) / (alpha + beta + 1)
+        return num_trials * mean * (1 - mean) + num_trials * (num_trials - 1) * sigsq
 
     # -----------------------------
     # GradientOptimisable interface
 
-    def compute_estimate(self, data: Data, controls: Controls) -> Values:
-        n = self.get_parameters()[0]
-        # TODO Provide proper estimates
+    def estimate_parameters(self, data: Data, controls: Controls) -> Values:
+        num_trials = self.get_parameters()[0]
         alpha = DEFAULT_ALPHA
         beta = DEFAULT_BETA
-        return (n, alpha, beta)
+        return (num_trials, alpha, beta)
 
     def compute_scores(self, variate: Vector) -> Vector:
-        n, alpha, beta = self.get_parameters()
+        num_trials, alpha, beta = self.get_parameters()
         # Use negative hyper-geometric form
-        s = variate  # successes
-        f = n - variate  # failures
         return (
-            log_choose(alpha + s - 1, s)
-            + log_choose(beta + f - 1, f)
-            - log_choose(alpha + beta + n - 1, n)
+            log_choose(alpha + variate - 1, variate)
+            + log_choose(beta + num_trials - variate - 1, num_trials - variate)
+            - log_choose(alpha + beta + num_trials - 1, num_trials)
         )
 
     def compute_gradients(self, variate: Vector) -> Values:
-        n, alpha, beta = self.get_parameters()
-        s = variate  # successes
-        f = n - variate  # failures
-        t0 = digamma(alpha + beta) - digamma(alpha + beta + n)
-        g_a = t0 + digamma(alpha + s) - digamma(alpha)
-        g_b = t0 + digamma(beta + f) - digamma(beta)
+        num_trials, alpha, beta = self.get_parameters()
+        term0 = digamma(alpha + beta) - digamma(alpha + beta + num_trials)
+        g_a = term0 + digamma(alpha + variate) - digamma(alpha)
+        g_b = term0 + digamma(beta + num_trials - variate) - digamma(beta)
         return (0, g_a, g_b)
-
-    def compute_neg_hessian(self, variate: Vector) -> Values2d:
-        n, alpha, beta = self.get_parameters()
-        # Use mean field approximation to expectation of Hessian
-        s_ab = alpha + beta
-        s_abn = s_ab + n
-        nh_ab =  polygamma(1, s_abn) - polygamma(1, s_ab)
-        nh_aa = nh_ab + polygamma(1, alpha) - polygamma(1, alpha * s_abn / s_ab)
-        nh_bb = nh_ab + polygamma(1, beta) - polygamma(1, beta * s_abn / s_ab)
-        # Force to be invertible, since n is constant
-        return ((1, 0, 0), (0, nh_aa, nh_ab), (0, nh_ab, nh_bb))

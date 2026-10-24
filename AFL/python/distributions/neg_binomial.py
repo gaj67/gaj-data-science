@@ -15,11 +15,18 @@ whereas alpha being real-valued gives the Polya distriibution.
 
 The link parameter is taken to be eta = logit(theta), which is
 not a natural parameter. The independent parameter is chosen as
-psi = alpha, which is almost but not quite a natural parameter.
+psi = alpha, which is almost (but not quite) a natural parameter.
 """
+# pylint: disable=wrong-import-position
 
 import numpy as np
-from scipy.special import loggamma, digamma, polygamma
+
+# pylint: disable=no-name-in-module
+from scipy.special import (
+    loggamma,
+    digamma,
+    polygamma,
+)
 
 if __name__ == "__main__":
     import imptools
@@ -34,7 +41,6 @@ from .core.data_types import (
     Vector,
 )
 
-from .core.parameterised import guard_prob
 from .core.distribution import StandardDistribution, add_link_model, set_link_model
 from .core.link_models import SwapLink20, LogitLink21
 from .core.optimiser import set_controls
@@ -49,13 +55,14 @@ DEFAULT_THETA = 0.5
 DEFAULT_ALPHA = 1
 
 
-@add_link_model(LogitLink21)  # logit theta = f(Z)
-@set_link_model(SwapLink20)   # Swap order of alpha and theta
+@add_link_model(LogitLink21)  # logit theta = f(covars)
+@set_link_model(SwapLink20)  # Swap order of alpha and theta
 @set_controls(max_iters=1000)
+# pylint: disable=too-many-ancestors
 class NegBinomialDistribution(StandardDistribution):
     """
     Implements the negative binomial probability distribution
-    for an integer (count) response variate, X.
+    for an integer (count) response variate, obs.
     """
 
     def __init__(self, alpha: Value = DEFAULT_ALPHA, theta: Value = DEFAULT_THETA):
@@ -71,11 +78,14 @@ class NegBinomialDistribution(StandardDistribution):
     # -----------------------
     # Parameterised interface
 
+    def num_parameters(self) -> int:
+        return 2
+
     def default_parameters(self) -> Values:
         return (DEFAULT_ALPHA, DEFAULT_THETA)
 
     def check_parameters(self, *params: Values) -> bool:
-        if len(params) != 2 or not super().check_parameters(*params):
+        if not super().check_parameters(*params):
             return False
         alpha, theta = params
         return np.all(alpha > 0) and np.all(theta > 0) and np.all(theta < 1)
@@ -96,10 +106,12 @@ class NegBinomialDistribution(StandardDistribution):
 
     def compute_estimates(self, variate: Vector) -> Values:
         # Backoff estimate based only on mean
-        ind = variate > 0
         alpha = DEFAULT_ALPHA
-        theta = alpha / (alpha + variate[ind])
-        return ind, (alpha, theta)
+        theta = np.ones(len(variate))
+        ind = variate > 0
+        theta[ind] = alpha / (alpha + variate[ind])
+        theta[~ind] = np.nan
+        return (alpha, theta)
 
     def compute_scores(self, variate: Vector) -> Vector:
         alpha, theta = self.get_parameters()
@@ -112,79 +124,103 @@ class NegBinomialDistribution(StandardDistribution):
         )
 
     def compute_gradients(self, variate: Vector) -> Values:
-        # grad = (dL/d alpha, dL/d theta)
         alpha, theta = self.get_parameters()
-        y_theta = -variate / (1 - theta)
-        mu_theta = -alpha / theta  # E[Y_theta]
-        y_alpha = digamma(alpha + variate)
-        mu_alpha = digamma(alpha) - np.log(theta)  # E[Y_alpha]
-        return (y_alpha - mu_alpha, y_theta - mu_theta)
+        g_a = digamma(alpha + variate) - digamma(alpha) + np.log(theta)
+        g_t = -variate / (1 - theta) + alpha / theta
+        return (g_a, g_t)
 
-    def compute_neg_hessian(self, variate: Vector) -> Values2d:
-        # hess = [(d^L/d alpha^2, d^L/d alpha.d theta),
-        #         (d^L/d theta.d alpha, d^L/d theta^2)]
+    def compute_hessian(self, variate: Vector) -> Values2d:
+        # Use expected values with mean field approximation
         alpha, theta = self.get_parameters()
-        v_theta = alpha / (theta**2 * (1 - theta))  # Var[Y_theta]
-        # Use mean field approximation
-        v_alpha = polygamma(1, alpha) - polygamma(1, alpha / theta)  # Var[Y_alpha]
-        cov_ta = -1 / theta  # Cov[Y_theta, Y_alpha]
-        return ((v_alpha, cov_ta), (cov_ta, v_theta))
+        h_aa = polygamma(1, alpha / theta) - polygamma(1, alpha)
+        h_tt = -alpha / (theta**2 * (1 - theta))
+        h_at = 1 / theta
+        return ((h_aa, h_at), (h_at, h_tt))
 
 
 ###############################################################################
 
 
 if __name__ == "__main__":
-    # Test default parameter
-    nd = NegBinomialDistribution()
-    assert nd.get_parameters() == (DEFAULT_ALPHA, DEFAULT_THETA)
-    print("Passed default parameter tests!")
 
-    # Test fitting multiple observations
-    X = [0, 1, 1, 2, 5]
-    nd = NegBinomialDistribution()
-    res = nd.fit(X)
-    assert res["converged"]
-    assert np.abs(nd.mean() - np.mean(X)) < 1e-6
-    print("Passed simple fitting tests!")
+    def test1():
+        """
+        Test default parameter
+        """
+        nbd = NegBinomialDistribution()
+        assert nbd.get_parameters() == (DEFAULT_ALPHA, DEFAULT_THETA)
+        print("Passed default parameter tests!")
 
-    # Test fitting multiple observations
-    for n in range(5, 101):
-        while True:
-            X = np.random.randint(0, 20, n)
-            if np.var(X) > np.mean(X):
-                break
-        nd = NegBinomialDistribution()
-        res = nd.fit(X)
+    def test2():
+        """
+        Test fitting multiple observations
+        """
+        obs = [0, 1, 1, 2, 5]
+        nbd = NegBinomialDistribution()
+        res = nbd.fit(obs)
         assert res["converged"]
-        assert np.abs(nd.mean() - np.mean(X)) < 1e-6
-    print("Passed fitting multiple observations tests!")
+        assert np.abs(nbd.mean() - np.mean(obs)) < 1e-6
+        print("Passed simple fitting tests!")
 
-    # Test regression of two groups
-    X = [0, 1, 1, 2, 5]
-    Z = [-1, -1, -1, 1, 1]
-    nr = NegBinomialDistribution().regressor()
-    res = nr.fit(X, Z)
-    assert res["converged"]
-    assert nr.mean(1) > nr.mean(-1)
-    print("Passed two-group regression tests!")
+    def test3():
+        """
+        Test fitting multiple observations
+        """
+        for num_trials in range(5, 101):
+            while True:
+                obs = np.random.randint(0, 20, num_trials)
+                if np.var(obs) > np.mean(obs):
+                    break
+            nbd = NegBinomialDistribution()
+            res = nbd.fit(obs)
+            assert res["converged"]
+            assert np.abs(nbd.mean() - np.mean(obs)) < 1e-6
+        print("Passed fitting multiple observations tests!")
 
-    # Test regression with only bias
-    Z0 = [1] * len(X)
-    nr = NegBinomialDistribution().regressor()
-    res = nr.fit(X, Z0)
-    wvec, a = nr.get_parameters()
-    w = wvec[0]
-    nd = NegBinomialDistribution()
-    res = nd.fit(X)
-    a0, t0 = nd.get_parameters()
-    w0 = np.log(t0 / (1 - t0))
-    assert np.abs(w - w0) < 1e-9
-    assert np.abs(a - a0) < 1e-9
-    t1, a1 = nr.link_model().invert_transform(w, a)
-    assert np.abs(t1 - t0) < 1e-9
-    assert np.abs(a1 - a0) < 1e-9
-    w2, a2 = nr.link_model().apply_transform(t1, a1)
-    assert np.abs(w - w2) < 1e-9
-    assert np.abs(a - a2) < 1e-9
-    print("Passed bias-only regression tests!")
+    def test4():
+        """
+        Test regression of two groups
+        """
+        obs = [0, 1, 1, 2, 5]
+        covars = [-1, -1, -1, 1, 1]
+        nbr = NegBinomialDistribution().regressor()
+        res = nbr.fit(obs, covars)
+        assert res["converged"]
+        assert nbr.mean(1) > nbr.mean(-1)
+        print("Passed two-group regression tests!")
+
+    def test5():
+        """
+        Test regression with only bias
+        """
+        obs = [0, 1, 1, 2, 5]
+        covars0 = [1] * len(obs)
+        nbr = NegBinomialDistribution().regressor()
+        res = nbr.fit(obs, covars0)
+        assert res["converged"]
+        wvec, alpha = nbr.get_parameters()
+        weight = wvec[0]
+        nbd = NegBinomialDistribution()
+        res = nbd.fit(obs)
+        assert res["converged"]
+        (
+            alpha0,
+            theta0,
+        ) = nbd.get_parameters()  # pylint: disable=unbalanced-tuple-unpacking
+        weight0 = np.log(theta0 / (1 - theta0))
+        assert np.abs(weight - weight0) < 1e-6
+        assert np.abs(alpha - alpha0) < 1e-6
+        theta1, alpha1 = nbr.link_model().invert_transform(weight, alpha)
+        assert np.abs(theta1 - theta0) < 1e-6
+        assert np.abs(alpha1 - alpha0) < 1e-6
+        weight2, alpha2 = nbr.link_model().apply_transform(theta1, alpha1)
+        assert np.abs(weight - weight2) < 1e-6
+        assert np.abs(alpha - alpha2) < 1e-6
+        print("Passed bias-only regression tests!")
+
+    # =================================================
+    test1()
+    test2()
+    test3()
+    test4()
+    test5()

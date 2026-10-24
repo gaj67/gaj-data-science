@@ -4,7 +4,6 @@ variate and covariate data using an optimiser.
 """
 
 from typing import Optional, Tuple
-from abc import abstractmethod
 
 import numpy as np
 from numpy.linalg import solve
@@ -16,45 +15,127 @@ from .data_types import (
     VectorLike,
     Matrix,
     MatrixLike,
+    Data,
+    to_data,
     mean_value,
     mean_values,
     to_matrix,
     values_to_matrix,
     as_value,
+    sum_vmm,
 )
-from .optimiser import (
-    Controls,
-    Data,
-    Results,
-    Optimisable,
-    Optimiser,
-    Controllable,
-    to_data,
-)
-
-from .parameterised import RegressionParameters, UNSPECIFIED_VECTOR
-from .fittable import GradientOptimisable
+from .controllable import Controls, Controllable
+from .optimisable import Optimisable, GradientOptimisable
+from .optimiser import Results, Optimiser
+from .parameterised import Parameterised, VectorParameters, UNSPECIFIED_VECTOR
 
 
 ###############################################################################
-# Helper methods for linear regression:
+# Interface for regression parameters
 
 
-def sum_vmm(vec: Vector, mat1: Matrix, mat2: Matrix) -> Matrix:
+# The default value of the link parameter
+DEFAULT_LINK = 0.0
+
+
+class RegressionParameters(Parameterised):
     """
-    Computes sum_i {v_i X_i Y_i^T}.
+    An implementation for accessing regression parameters and
+    associated independent parameters.
 
-    Input:
-        - vec (vector): The weight vector, [v_i].
-        - mat1 (matrix): The first row matrix, [X_i^T].
-        - mat2 (matrix): The second row matrix, [Y_i^T].
+    It is assumed that there are two underlying models.
+    The regression model contains the regression parameters.
+    The link model contains the link parameters followed by
+    any independent parameters.
 
-    Returns:
-        - res (matrix): The computed result.
+    Each scalar link parameter, eta, and corresponding
+    vector regression parameter, phi, are assumed to be
+    directly related by a regression function of the
+    covariates, Z, namely: eta = f(Z, phi).
+    Although this function is not used explicitly here, we do
+    make use of the assumption that f(Z, 0) = 0.
     """
-    return sum(v * np.outer(x, y) for v, x, y in zip(vec, mat1, mat2))
 
-    
+    # ------------------------------
+    # RegressionParameters interface
+
+    def __init__(self, num_links: int, link_model: Parameterised):
+        """
+        Initialises the regression model parameters.
+
+        Input:
+            - num_links (int): The required number
+                of regression parameters.
+            - link_model (parameterised): The underlying link model.
+        """
+        self._num_links = num_links
+        self._regression_parameters = VectorParameters(num_links)
+        self._link_model = link_model
+
+    def regression_model(self) -> Parameterised:
+        """
+        Obtains the underlying regression model.
+
+        Returns:
+            - regression (parameterised): The regression model.
+        """
+        return self._regression_parameters
+
+    def link_model(self) -> Parameterised:
+        """
+        Obtains the underlying link model.
+
+        Returns:
+            - link_model (parameterised): The link model.
+        """
+        return self._link_model
+
+    def num_links(self) -> int:
+        """
+        Obtains the number of regressable link parameters of
+        the underlying link model.
+
+        Returns:
+            - num_links (int): The number of link parameters.
+        """
+        return self._num_links
+
+    # -----------------------
+    # Parameterised interface
+
+    def num_parameters(self) -> int:
+        return self.link_model().num_parameters()
+
+    def default_parameters(self) -> Values:
+        phis = self.regression_model().default_parameters()
+        psi = self.link_model().default_parameters()[self.num_links() :]
+        return (*phis, *psi)
+
+    def get_parameters(self) -> Values:
+        phis = self.regression_model().get_parameters()
+        psi = self.link_model().get_parameters()[self.num_links() :]
+        return (*phis, *psi)
+
+    def set_parameters(self, *params: Values):
+        if not self.check_parameters(*params):
+            raise ValueError("Invalid parameters!")
+        phis = params[0 : self._num_links]
+        psi = params[self._num_links :]
+        self.regression_model().set_parameters(*phis)
+        etas = [DEFAULT_LINK] * self.num_links()
+        self.link_model().set_parameters(*etas, *psi)
+
+    def check_parameters(self, *params: Values) -> bool:
+        if len(params) != self.num_parameters():
+            return False
+        phis = params[0 : self.num_links()]
+        psi = params[self.num_links() :]
+        if not self.regression_model().check_parameters(*phis):
+            return False
+        etas = [DEFAULT_LINK] * self.num_links()
+        return self.link_model().check_parameters(*etas, *psi)
+
+
 ###############################################################################
 # Classes for gradient optimisation with covariates using linear regression:
 
@@ -65,7 +146,7 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
     variate and covariate data.
 
     Assumes the underlying implementation is a regression model
-    with its first parameter being a vector of regression weights,
+    with its first n parameters being vectors of regression weights,
     and any remaining parameters being the independent parameters
     of an underlying link model.
 
@@ -79,7 +160,7 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
     def __init__(self, num_links: int, link_model: GradientOptimisable):
         """
         Initialises the regression parameters.
-        
+
         Input:
             - num_links (int): The required number
                 of regression parameters.
@@ -117,40 +198,51 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
                 raise ValueError("Uninitialised regression parameters!")
             if len(phi) != vec_len:
                 raise ValueError("Incorrectly sized regression parameters!")
-        z = to_matrix(covariates, n_cols=vec_len)
-        etas = [as_value(z @ phi) for phi in phis]
+        z_mat = to_matrix(covariates, n_cols=vec_len)
+        etas = [as_value(z_mat @ phi) for phi in phis]
         psi = self.link_model().get_parameters()[num_links:]
         self.link_model().set_parameters(*etas, *psi)
 
     # ---------------------
     # Optimisable interface
 
-    def compute_estimate(self, data: Data, controls: Controls) -> Values:
-        ind, values = self.link_model().compute_estimates(data.variate)
-        if len(values) == 0 or not np.any(ind):
+    def estimate_parameters(self, data: Data, controls: Controls) -> Values:
+        values = self.link_model().compute_estimates(data.variate)
+        if len(values) > 0:
+            ind = np.ones(len(data.variate), dtype=bool)
+            for est in values:
+                ind &= ~np.isnan(est)
+            if not np.any(ind):
+                values = tuple()
+        if len(values) == 0:
             # No point estimates - use mean estimate and zero weights
-            params = self.link_model().compute_estimate(data, controls)
-            psi = params[self.num_links():]
+            params = self.link_model().estimate_parameters(data, controls)
+            psi = params[self.num_links() :]
             vec_len = data.covariates.shape[1]
             phis = [np.zeros(vec_len) for _ in range(self.num_links())]
         else:
             # Average point estimates of independent parameters
-            w = data.weights[ind]
-            psi = mean_values(w, values[self.num_links():])
+            weights = data.weights[ind]
+            psi = mean_values(weights, values[self.num_links() :])
             # Link parameter(s) data estimates
-            etas = values[0:self.num_links()]
-            z = data.covariates[ind, :]
-            a_mat = sum_vmm(w, z, z)
+            etas = values[0 : self.num_links()]
+            z_mat = data.covariates[ind, :]
+            a_mat = sum_vmm(weights, z_mat, z_mat)
             # Invert linear regression(s): Z @ phi = eta
-            phis = [solve(a_mat, (w * eta) @ z) for eta in etas]
+            phis = [solve(a_mat, (weights * eta[ind]) @ z_mat) for eta in etas]
         return (*phis, *psi)
 
-    def compute_score(self, data: Data, controls: Controls) -> float:
+    def evaluate_score(self, data: Data, controls: Controls) -> float:
         self.apply_regression(data.covariates)
         scores = self.link_model().compute_scores(data.variate)
         return mean_value(data.weights, scores)
 
-    def compute_update(self, data: Data, controls: Controls) -> Values:
+    def compute_scores(self, variate: Vector) -> Vector:
+        # There are no given covariates!
+        # Hence, we cannot use least-squares or nonlinear optimisation.
+        raise NotImplementedError
+
+    def estimate_update(self, data: Data, controls: Controls) -> Values:
         self.apply_regression(data.covariates)
         grads = self.link_model().compute_gradients(data.variate)
         if len(grads) == 0:
@@ -163,21 +255,23 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
 
         # Map back from eta to phi, i.e. compute <dL/dphi> = <Z dL/deta>
         g_etas = grads[0:n_links]
-        w = data.weights / np.sum(data.weights)
-        g_phis = [(w * g_eta) @ data.covariates for g_eta in g_etas]
+        weights = data.weights / np.sum(data.weights)
+        g_phis = [(weights * g_eta) @ data.covariates for g_eta in g_etas]
 
-        neg_hess = self.link_model().compute_neg_hessian(data.variate)
-        if len(neg_hess) == 0:
+        hess = self.link_model().compute_hessian(data.variate)
+        if len(hess) == 0:
             # No second derivatives, just use gradient
             return (*g_phis, *g_psi)
 
-        # Compute neg_hess[phi, psi]^-1 * grads[phi, psi]
+        # Compute -hess[phi, psi]^-1 * grads[phi, psi]
         g_phi = UNSPECIFIED_VECTOR if n_links == 0 else np.concatenate(g_phis)
-        d_phi, d_psi = self._compute_modified_gradients(neg_hess, g_phi, g_psi, data)
+        d_phi, d_psi = self._compute_modified_gradients(hess, g_phi, g_psi, data)
         d_phis = [] if n_links == 0 else np.split(d_phi, n_links)
         return (*d_phis, *d_psi)
 
-    def _compute_modified_gradients(self, neg_hess: Values2d, g_phi: Vector, g_psi: Vector, data: Data) -> Tuple[Vector, Vector]:
+    def _compute_modified_gradients(
+        self, hess: Values2d, g_phi: Vector, g_psi: Vector, data: Data
+    ) -> Tuple[Vector, Vector]:
         # Expected value of negative Hessian of link log-likelihood gives:
         #  [ Var[Y_eta]         Cov[Y_eta, Y_psi] ]
         #  [ Cov[Y_psi, Y_eta]  Var[Y_psi]        ]
@@ -185,7 +279,7 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
         #  [v_phi cov^T] = [<Z v_eta Z^T>  <Z cov_ep>]
         #  [cov   v_psi]   [<cov_pe Z^T>   <v_psi>   ]
 
-        v_phi, cov, v_psi = self._compute_blocks(neg_hess, data)
+        v_phi, cov, v_psi = self._compute_blocks(hess, data)
 
         # The general task now is to solve the matrix equation:
         #   [v_phi cov^T] * [d_phi] = [g_phi]
@@ -220,37 +314,56 @@ class RegressionOptimisable(RegressionParameters, Optimisable):
         return d_phi, d_psi
 
     def _compute_blocks(
-        self, neg_hess: Values2d, data: Data
+        self, hess: Values2d, data: Data
     ) -> Tuple[Optional[Matrix], Optional[Matrix], Optional[Matrix]]:
+        """
+        Computes the block components of the expected negated-Hessian matrix.
+        """
         n_links = self.num_links()
-        n_params = len(neg_hess)
+        n_params = len(hess)
         n_indep = n_params - n_links
 
         n_rows = len(data.variate)
-        w = data.weights / np.sum(data.weights)
-        z = data.covariates
+        # Quick hack - negate the weights vector instead of the Hessian Values2d object
+        weights = -data.weights / np.sum(data.weights)
+        z_mat = data.covariates
 
         # Check for no link parameters:
         if n_links == 0:
             # Compute variance matrix of Y_psi, i.e. v_psi := <Var[Y_psi]>
-            v_psi = np.array([(w @ values_to_matrix(r, n_rows)) for r in neg_hess])
+            v_psi = np.array(
+                [(weights @ values_to_matrix(r_i, n_rows)) for r_i in hess]
+            )
             return None, None, v_psi
 
         # Check for no independent parameters:
         if n_indep == 0:
             # Compute variance matrix of Y_phi, i.e. v_phi := <Var[Y_phi]> = <Z Var[Y_eta] Z^T>
-            v_phis = [[sum_vmm(w * v, z, z) for v in r] for r in neg_hess]
-            v_phi = np.vstack([np.hstack(r) for r in v_phis])
+            v_phis = [
+                [sum_vmm(weights * v_ij, z_mat, z_mat) for v_ij in r_i] for r_i in hess
+            ]
+            v_phi = np.vstack([np.hstack(r_i) for r_i in v_phis])
             return v_phi, None, None
 
         # Both link parameters and independent parameters:
         # Compute variance matrix of Y_psi, i.e. v_psi := <Var[Y_psi]>
-        v_psi = np.array([(w @ values_to_matrix(r[n_links:], n_rows)) for r in neg_hess[n_links:]])
+        v_psi = np.array(
+            [
+                (weights @ values_to_matrix(r_i[n_links:], n_rows))
+                for r_i in hess[n_links:]
+            ]
+        )
         # Compute variance matrix of Y_phi, i.e. v_phi := <Var[Y_phi]> = <Z Var[Y_eta] Z^T>
-        v_phis = [[sum_vmm(w * v, z, z) for v in r[0:n_links]] for r in neg_hess[0:n_links]]
-        v_phi = np.vstack([np.hstack(r) for r in v_phis])
+        v_phis = [
+            [sum_vmm(weights * v_ij, z_mat, z_mat) for v_ij in r_i[0:n_links]]
+            for r_i in hess[0:n_links]
+        ]
+        v_phi = np.vstack([np.hstack(r_i) for r_i in v_phis])
         # Compute covariance matrix, i.e. cov := <Cov[Y_psi, Y_phi]> = <Cov[Y_psi, Y_eta] Z^T>
-        covs = [sum_vmm(w, values_to_matrix(r[n_links:], n_rows), z) for r in neg_hess[0:n_links]]
+        covs = [
+            sum_vmm(weights, values_to_matrix(r_i[n_links:], n_rows), z_mat)
+            for r_i in hess[0:n_links]
+        ]
         cov = np.hstack(covs)
         return v_phi, cov, v_psi
 

@@ -3,7 +3,7 @@ This module provides a number of pre-built link models useful for regression.
 """
 
 import numpy as np
-from scipy.special import logit, expit as logistic
+from scipy.special import logit, expit as logistic  # pylint: disable=no-name-in-module
 
 from .distribution import TransformDistribution
 from .parameterised import guard_prob, guard_pos
@@ -12,6 +12,8 @@ from .data_types import Values, Values2d
 
 ########################################################
 # Identity link models
+
+# pylint: disable=too-many-ancestors
 
 
 class IdentityLinkn1(TransformDistribution):
@@ -114,9 +116,8 @@ class LogitLink21(TransformDistribution):
         return (theta, alpha)
 
     def compute_jacobian(self) -> Values2d:
-        theta, alpha = self.underlying().get_parameters()
+        theta, _ = self.underlying().get_parameters()
         return ((theta * (1 - theta), 0), (0, 1))
-
 
 
 ########################################################
@@ -164,7 +165,7 @@ class LogLink22(TransformDistribution):
            eta_1 = log(alpha) , eta_2 = log(beta) ;
         => alpha = exp(eta_1) , beta = exp(eta_2) ,
 
-    where the underlying parameters, alpha and beta, 
+    where the underlying parameters, alpha and beta,
     represent positive rates or scales.
     """
 
@@ -201,7 +202,7 @@ class LogLink21(TransformDistribution):
            eta_1 = log(alpha) , eta_2 = log(beta) ;
         => alpha = exp(eta_1) , beta = exp(eta_2) ,
 
-    where the underlying parameters, alpha and beta, 
+    where the underlying parameters, alpha and beta,
     represent positive rates or scales.
     """
 
@@ -237,9 +238,9 @@ class LogLinkn2(TransformDistribution):
            eta_1 = log(alpha) , eta_2 = log(beta) ;
         => alpha = exp(eta_1) , beta = exp(eta_2) ,
 
-    where the underlying parameters, alpha and beta, 
+    where the underlying parameters, alpha and beta,
     represent positive rates or scales.
-    
+
     Any remaining parameters are simply passed through
     as independent parameters, psi.
     """
@@ -293,7 +294,7 @@ class LogRatioLink21a(TransformDistribution):
     def check_parameters(self, *params: Values) -> bool:
         if len(params) != 2 or not super().check_parameters(*params):
             return False
-        eta, psi = params
+        _, psi = params
         return np.all(psi > 0)
 
     def apply_transform(self, *std_params: Values) -> Values:
@@ -331,7 +332,7 @@ class LogRatioLink21b(TransformDistribution):
     def check_parameters(self, *params: Values) -> bool:
         if len(params) != 2 or not super().check_parameters(*params):
             return False
-        eta, psi = params
+        _, psi = params
         return np.all(psi > 0)
 
     def apply_transform(self, *std_params: Values) -> Values:
@@ -377,7 +378,7 @@ class LogRatioLink22(TransformDistribution):
         return (eta_1, eta_2)
 
     def invert_transform(self, *alt_params: Values) -> Values:
-        eta_1, eta_2 = eta_1
+        eta_1, eta_2 = alt_params
         alpha = np.exp(0.5 * (eta_2 + eta_1))
         beta = np.exp(0.5 * (eta_2 - eta_1))
         return (alpha, beta)
@@ -400,9 +401,9 @@ class SwapLink20(TransformDistribution):
         => alpha = psi2; beta = psi1
 
     where the underlying parameters are alpha and beta.
-    
+
     It is assumed that neither parameter is intrinsically
-    a link parameter. To change this behaviour, use 
+    a link parameter. To change this behaviour, use
     core.distribution.add_link_model() to add another
     link model over this one.
     """
@@ -433,9 +434,9 @@ class ReverseLinkn0(TransformDistribution):
     """
     Implements a special link model that simply reverses
     the order of parameters.
-    
+
     It is assumed that neither parameter is intrinsically
-    a link parameter. To change this behaviour, use 
+    a link parameter. To change this behaviour, use
     core.distribution.add_link_model() to add another
     link model over this one.
     """

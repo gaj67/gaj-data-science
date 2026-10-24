@@ -5,28 +5,29 @@ of a discrete or continuous, scalar variate.
 Typically, a distribution will also be parameterised, but this is not required.
 For example, the logistic distribution is not parameterised in its standard form.
 """
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Callable, Type
 
+import numpy as np
+
 from .data_types import (
+    Data,
     Value,
     Values,
+    Vector,
     VectorLike,
     MatrixLike,
     to_vector,
     as_value,
 )
 
-from .parameterised import (
-    Parameterised,
-    Parameters,
-)
-from .fittable import Fittable, GradientOptimisable, TransformOptimisable
+from .parameterised import Parameters
+from .controllable import Controls, set_controls
+from .fittable import Fittable
+from .optimisable import GradientOptimisable, TargetOptimisable, TransformOptimisable
 from .regressable import Regressable, RegressionOptimisable
-from .optimiser import Controls, set_controls
 
 
 ###############################################################################
@@ -77,7 +78,18 @@ class Distribution(ABC):
         raise NotImplementedError
 
 
-class BaseDistribution(Distribution, GradientOptimisable, Fittable):
+# pylint: disable=too-many-ancestors
+
+
+@set_controls(
+    # (bool) Turn on to use least-squares optimisation; AND ...
+    least_squares=False,
+    # (int) For continuous or many-valued distributions, set to the number of histogram bins
+    num_bins=0,
+    # (function) Fit least squares in the probability space, by default
+    score_fn=np.exp,
+)
+class BaseDistribution(Distribution, GradientOptimisable, TargetOptimisable, Fittable):
     """
     Interface for a parameterised distribution with a differentiable,
     optimisable log-likelihood score.
@@ -90,9 +102,9 @@ class BaseDistribution(Distribution, GradientOptimisable, Fittable):
         # Assume the objective function is the log-likelihhood
         return as_value(self.compute_scores(to_vector(variate)))
 
-    # ---------------------------------------------
-    # Interface required for RegressionDistribution
-    
+    # --------------------------------
+    # RegressionDistribution interface
+
     def link_model(self) -> BaseDistribution:
         """
         Obtains the link distribution used for regression.
@@ -107,11 +119,40 @@ class BaseDistribution(Distribution, GradientOptimisable, Fittable):
         Obtains the number of leading parameters that will be
         used as link parameters for regression. Any rermaining
         parameters will be used as independent parameters.
-        
+
         Returns:
             - num (int): The number of link parameters.
         """
         return 0
+
+    # -----------------------------------------------------
+    # TargetOptimisable interface for optional least-squares fitting
+
+    def target_scores(self, data: Data, controls: Controls) -> Vector:
+        # Estimate empirical distribution
+        num_bins = controls.get("num_bins", 0)
+        if num_bins > 0:
+            # Use unweighted histogram
+            _, x_data = np.histogram(data.variate, bins=num_bins)
+            x_idx = np.digitize(data.variate, x_data, right=True) - 1
+            x_idx[x_idx < 0] = 0
+        else:
+            # Use unique values
+            x_data = np.unique(data.variate)
+            x_idx = np.zeros(len(data.variate), dtype=int)
+            for i, value in enumerate(x_data):
+                x_idx[data.variate == value] = i
+            num_bins = len(x_data)
+        # Compute weighted contributions
+        y_data = np.zeros(num_bins)
+        for i in range(num_bins):
+            y_data[i] = np.sum(data.weights[x_idx == i])
+        # Convert to scores matching compute_scores()
+        y_data = np.log(1e-30 + y_data / np.sum(y_data))
+        scores = np.zeros(len(data.variate))
+        for i, score in enumerate(y_data):
+            scores[x_idx == i] = score
+        return scores
 
 
 ###############################################################################

@@ -69,6 +69,16 @@ class Parameterised(ABC):
     """
 
     @abstractmethod
+    def num_parameters(self) -> int:
+        """
+        Provides the number of distributional parameters.
+
+        Returns:
+            - num (int): The number of parameters.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def default_parameters(self) -> Values:
         """
         Provides default values of the distributional parameters.
@@ -113,7 +123,10 @@ class Parameterised(ABC):
             - flag (bool): A  value of True if the values are all valid,
                 else False.
         """
-        # By default, just check for dimensionality and divergence
+        # Check number of parameters
+        if len(params) != self.num_parameters():
+            return False
+        # Check for dimensionality and divergence
         for value in params:
             if not is_scalar(value) and not is_vector(value):
                 return False
@@ -168,7 +181,7 @@ class VectorParameters(Parameters):
         """
         Initialises space for the specified number
         of vector parameters.
-        
+
         Input:
             - num_params (int): The required number
                 of vector parameters.
@@ -177,15 +190,18 @@ class VectorParameters(Parameters):
             raise ValueError("Number of parameters must be non-negative!")
         self._num_params = num_params
         Parameters.__init__(self)
-        
+
+    def num_parameters(self):
+        return self._num_params
+
     def default_parameters(self) -> Values:
         return tuple([UNSPECIFIED_VECTOR] * self._num_params)
 
     def check_parameters(self, *params) -> bool:
         if len(params) != self._num_params:
             return False
-        for v in params:
-            if not is_vector(v) or is_divergent(v):
+        for value in params:
+            if not is_vector(value) or is_divergent(value):
                 return False
         return True
 
@@ -206,7 +222,7 @@ class TransformParameterised(Parameterised):
     def __init__(self, underlying: Parameterised):
         """
         Initialises the transormation with the underlying parameters.
-        
+
         Input:
             - underlying (parameterised): The underlying parameters
                 of the standard parameter space.
@@ -257,6 +273,9 @@ class TransformParameterised(Parameterised):
     # -----------------------
     # Parameterised interface
 
+    def num_parameters(self) -> int:
+        return self.underlying().num_parameters()
+
     def default_parameters(self) -> Values:
         std_params = self.underlying().default_parameters()
         return self.apply_transform(*std_params)
@@ -270,104 +289,3 @@ class TransformParameterised(Parameterised):
             raise ValueError("Invalid parameters!")
         std_params = self.invert_transform(*params)
         self.underlying().set_parameters(*std_params)
-
-
-###############################################################################
-# Interface for regression:
-
-
-# The default value of the link parameter
-DEFAULT_LINK = 0.0
-
-
-class RegressionParameters(Parameterised):
-    """
-    An implementation for accessing regression parameters and
-    associated independent parameters.
-
-    It is assumed that there are two underlying models.
-    The regression model contains the regression parameters.
-    The link model contains the link parameters followed by
-    any independent parameters.
-
-    Each scalar link parameter, eta, and corresponding
-    vector regression parameter, phi, are assumed to be
-    directly related by a regression function of the
-    covariates, Z, namely: eta = f(Z, phi).
-    Although this function is not used explicitly here, we do
-    make use of the assumption that f(Z, 0) = 0.
-    """
-
-    # ------------------------------
-    # RegressionParameters interface
-
-    def __init__(self, num_links: int, link_model: Parameterised):
-        """
-        Initialises the regression model parameters.
-        
-        Input:
-            - num_links (int): The required number
-                of regression parameters.
-            - link_model (parameterised): The underlying link model.
-        """
-        self._num_links = num_links
-        self._regression_parameters = VectorParameters(num_links)
-        self._link_model = link_model
-
-    def regression_model(self) -> Parameterised:
-        """
-        Obtains the underlying regression model.
-
-        Returns:
-            - regression (parameterised): The regression model.
-        """
-        return self._regression_parameters
-
-    def link_model(self) -> Parameterised:
-        """
-        Obtains the underlying link model.
-
-        Returns:
-            - link_model (parameterised): The link model.
-        """
-        return self._link_model
-
-    def num_links(self) -> int:
-        """
-        Obtains the number of regressable link parameters of
-        the underlying link model.
-
-        Returns:
-            - num_links (int): The number of link parameters.
-        """
-        return self._num_links
-
-    # -----------------------
-    # Parameterised interface
-
-    def default_parameters(self) -> Values:
-        phis = self.regression_model().default_parameters()
-        psi = self.link_model().default_parameters()[self.num_links():]
-        return (*phis, *psi)
-
-    def get_parameters(self) -> Values:
-        phis = self.regression_model().get_parameters()
-        psi = self.link_model().get_parameters()[self.num_links():]
-        return (*phis, *psi)
-
-    def set_parameters(self, *params: Values):
-        if not self.check_parameters(*params):
-            raise ValueError("Invalid parameters!")
-        phis = params[0:self._num_links]
-        psi = params[self._num_links:]
-        self.regression_model().set_parameters(*phis)
-        etas = [DEFAULT_LINK] * self.num_links()
-        self.link_model().set_parameters(*etas, *psi)
-
-    def check_parameters(self, *params: Values) -> bool:
-        phis = params[0:self.num_links()]
-        psi = params[self.num_links():]
-        if not self.regression_model().check_parameters(*phis):
-            return False
-        etas = [DEFAULT_LINK] * self.num_links()
-        return self.link_model().check_parameters(*etas, *psi)

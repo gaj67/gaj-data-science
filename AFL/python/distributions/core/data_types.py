@@ -8,7 +8,14 @@ a scalar value or a vector of values (see the Value type).
 Covariates may also be a matrix.
 """
 
-from typing import TypeAlias, Union, Tuple, Any
+from typing import (
+    TypeAlias,
+    Union,
+    Any,
+    NamedTuple,
+    Optional,
+    Tuple,
+)
 from numpy.typing import NDArray, ArrayLike
 from numpy import ndarray
 
@@ -16,7 +23,7 @@ import numpy as np
 
 
 ###############################################################################
-# Useful types:
+# Useful base types:
 
 # A float-like single value.
 Scalar: TypeAlias = Union[float, int]
@@ -43,6 +50,28 @@ VectorLike: TypeAlias = Union[Scalar, Vector, ArrayLike]
 
 # An extension to permit array-like values as matrices.
 MatrixLike: TypeAlias = Union[Scalar, Vector, Matrix, ArrayLike]
+
+
+class Data(NamedTuple):
+    """
+    Provides a wrapper for observed data.
+    """
+
+    variate: Vector
+    weights: Vector
+    covariates: Optional[Matrix] = None
+
+    def mean(self) -> float:
+        """
+        Computes the weighted mean of the data.
+        """
+        return mean_value(self.weights, self.variate)
+
+    def variance(self) -> float:
+        """
+        Computes the weighted variance of the data.
+        """
+        return var_value(self.weights, self.variate)
 
 
 ###############################################################################
@@ -231,6 +260,39 @@ def as_value(value: Vector) -> Value:
     return value[0] if len(value) == 1 else value
 
 
+def to_data(
+    variate: VectorLike,
+    weights: Optional[VectorLike] = None,
+    covariates: Optional[MatrixLike] = None,
+) -> Data:
+    """
+    Bundles the observational data into standard format.
+
+    Inputs:
+        - variate (vector-like): The value(s) of the variate.
+        - weights (vector-like, optional): The weight(s) of the data.
+        - covariates (matrix-like, optional): The value(s) of the covariate(s).
+
+    Returns:
+        - data (tuple of data): The bundled data.
+    """
+    # Allow for single or multiple observations, with or without weights
+    v_data = to_vector(variate)
+    n_rows = len(v_data)
+    if weights is None:
+        v_weights = np.ones(n_rows)
+    else:
+        v_weights = to_vector(weights, n_rows)
+    if covariates is None:
+        return Data(v_data, v_weights)
+    m_covariates = to_matrix(covariates, n_rows)
+    return Data(v_data, v_weights, m_covariates)
+
+
+###############################################################################
+# Special functions for data computations:
+
+
 def mean_value(weights: Vector, value: Value) -> float:
     """
     Computes the weighted mean of the scalar or vector value.
@@ -245,20 +307,44 @@ def mean_value(weights: Vector, value: Value) -> float:
     return (weights @ to_vector(value)) / np.sum(weights)
 
 
-def mean_values(weights: Vector, values: Values) -> Vector:
+def var_value(weights: Vector, value: Value) -> float:
+    """
+    Computes the weighted variance of the scalar or vector value.
+
+    Input:
+        - weights (ndarray): The vector of weights.
+        - values (float-like or vector): The scalar or vector value.
+
+    Returns:
+        - var (float): The value variance.
+    """
+    vec = to_vector(value)
+    mean = (weights @ vec) / np.sum(weights)
+    mean_sq = (weights @ vec**2) / np.sum(weights)
+    return mean_sq - mean**2
+
+
+def mean_values(
+    weights: Vector, values: Values, use_only: Optional[Vector] = None
+) -> Vector:
     """
     Computes the weighted mean of the scalar or vector values.
 
     Input:
         - weights (ndarray): The vector of weights.
         - values (tuple of float-like or vector): The scalar or vector values.
+        - use_only (ndarray of bool, optional): If specified, indicates which
+            elements to use.
 
     Returns:
         - means (ndarray): The vector of value means.
     """
     if len(values) == 0:
         return np.array([])
-    return (weights @ values_to_matrix(values, len(weights))) / np.sum(weights)
+    data = values_to_matrix(values, len(weights))
+    if use_only is None:
+        return (weights @ data) / np.sum(weights)
+    return (weights[use_only] @ data[use_only, :]) / np.sum(weights[use_only])
 
 
 def mult_rmat_vec(mat: Values2d, vec: Values) -> Values:
@@ -289,3 +375,18 @@ def mult_rmat_rmat(mat1: Values2d, mat2: Values2d) -> Values2d:
         - mat (matrix-like of float or vector): The matrix result.
     """
     return tuple(mult_rmat_vec(mat2, row) for row in mat1)
+
+
+def sum_vmm(vec: Vector, mat1: Matrix, mat2: Matrix) -> Matrix:
+    """
+    Computes sum_i {v_i X_i Y_i^T}.
+
+    Input:
+        - vec (vector): The weight vector, [v_i].
+        - mat1 (matrix): The first row matrix, [X_i^T].
+        - mat2 (matrix): The second row matrix, [Y_i^T].
+
+    Returns:
+        - res (matrix): The computed result.
+    """
+    return sum(v_i * np.outer(x_i, y_i) for v_i, x_i, y_i in zip(vec, mat1, mat2))

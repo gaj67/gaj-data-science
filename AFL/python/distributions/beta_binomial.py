@@ -79,13 +79,13 @@ class BetaBinomialDistribution(StandardDistribution):
     # Parameterised interface
 
     def num_parameters(self) -> int:
-        return 2
+        return 3
 
     def default_parameters(self) -> Values:
-        return (0, DEFAULT_ALPHA, DEFAULT_BETA)
+        return (1, DEFAULT_ALPHA, DEFAULT_BETA)
 
     def check_parameters(self, *params: Values) -> bool:
-        if len(params) != 3 or not super().check_parameters(*params):
+        if not super().check_parameters(*params):
             return False
         num_trials, alpha, beta = params
         return (num_trials > 0) and np.all(alpha > 0) and np.all(beta > 0)

@@ -4,13 +4,14 @@ This module implements the beta-Bernoulli distribution.
 The distributional parameters are the beta shape parameters,
 namely alpha and beta.
 
-The link parameter is chosen as eta = logit(mu) = log(alpha/beta),
+The link parameter is chosen as eta = logit(mean) = log(alpha/beta),
 which is not a natural parameter. The independent parameter is
 chosen to be psi = alpha. 
 """
 
 import numpy as np
 
+# pylint: disable=wrong-import-position
 if __name__ == "__main__":
     import imptools
 
@@ -37,13 +38,14 @@ DEFAULT_BETA = 1
 
 
 @set_link_model(LogRatioLink21b)
+# pylint: disable=too-many-ancestors
 class BetaBernoulliDistribution(StandardDistribution):
     """
     Implements the beta-Bernoulli probability distribution for a
-    binary response variate, X.
+    binary response variate, obs.
 
     The shape parameters, alpha and beta, govern the probability
-    that X=1.
+    that obs=1.
     """
 
     def __init__(self, alpha: Value = DEFAULT_ALPHA, beta: Value = DEFAULT_BETA):
@@ -59,11 +61,14 @@ class BetaBernoulliDistribution(StandardDistribution):
     # -----------------------
     # Parameterised interface
 
+    def num_parameters(self) -> int:
+        return 2
+
     def default_parameters(self) -> Values:
         return (DEFAULT_ALPHA, DEFAULT_BETA)
 
     def check_parameters(self, *params: Values) -> bool:
-        if len(params) != 2 or not super().check_parameters(*params):
+        if not super().check_parameters(*params):
             return False
         alpha, beta = params
         return np.all(alpha > 0) and np.all(beta > 0)
@@ -92,51 +97,75 @@ class BetaBernoulliDistribution(StandardDistribution):
 
     def compute_gradients(self, variate: Vector) -> Values:
         alpha, beta = self.get_parameters()
-        g_alpha = variate / alpha - 1 / (alpha + beta)
-        g_beta = (1 - variate) / beta - 1 / (alpha + beta)
-        return (g_alpha, g_beta)
+        g_a = variate / alpha - 1 / (alpha + beta)
+        g_b = (1 - variate) / beta - 1 / (alpha + beta)
+        return (g_a, g_b)
 
 
 ###############################################################################
 
 if __name__ == "__main__":
-    # Test default parameter
-    bd = BetaBernoulliDistribution()
-    assert len(bd.get_parameters()) == 2
-    assert bd.get_parameters() == (DEFAULT_ALPHA, DEFAULT_BETA)
-    mu = bd.mean()
-    assert mu == DEFAULT_ALPHA / (DEFAULT_ALPHA + DEFAULT_BETA)
-    assert bd.variance() == mu * (1 - mu)
-    print("Passed default parameter tests!")
 
-    # Test fitting multiple observations
-    X = np.array([1, 1, 0, 1])
-    bd = BetaBernoulliDistribution()
-    res = bd.fit(X)
-    assert np.abs(bd.mean() - np.mean(X)) < 1e-6
-    _alpha, _beta = bd.get_parameters()
-    assert np.abs(_alpha / _beta - 3) < 1e-5
-    print("Passed fitting multiple observations test!")
+    def test1():
+        """
+        Test default parameter
+        """
+        bbd = BetaBernoulliDistribution()
+        assert len(bbd.get_parameters()) == 2
+        assert bbd.get_parameters() == (DEFAULT_ALPHA, DEFAULT_BETA)
+        mean = bbd.mean()
+        assert mean == DEFAULT_ALPHA / (DEFAULT_ALPHA + DEFAULT_BETA)
+        assert bbd.variance() == mean * (1 - mean)
+        print("Passed default parameter tests!")
 
-    # Test regression without intercept/bias
-    br = BetaBernoulliDistribution().regressor()
-    X = [1, 0]
-    Z = [1, -1]
-    res = br.fit(X, Z, max_iters=1000)
-    phi, psi = br.get_parameters()
-    assert len(phi) == 1
-    mu = br.mean(Z)
-    for x, m in zip(X, mu):
-        assert np.abs(m - x) < 1e-2
-    print("Passed fitting simple regression test!")
+    def test2():
+        """
+        Test fitting meanltiple observations
+        """
+        obs = np.array([1, 1, 0, 1])
+        bbd = BetaBernoulliDistribution()
+        res = bbd.fit(obs)
+        assert res["converged"]
+        assert np.abs(bbd.mean() - np.mean(obs)) < 1e-6
+        # pylint: disable=unbalanced-tuple-unpacking
+        _alpha, _beta = bbd.get_parameters()
+        assert np.abs(_alpha / _beta - 3) < 1e-5
+        print("Passed fitting meanltiple observations test!")
 
-    # Test regression with intercept/bias
-    br = BetaBernoulliDistribution().regressor()
-    X = [1, 0, 1, 1, 0]
-    Z = [(1, z) for z in [1, 1, -1, -1, -1]]
-    res = br.fit(X, Z)
-    mu = br.mean((1, 1))
-    assert np.abs(mu - 0.5) < 1e-5
-    mu = br.mean([(1, -1)])
-    assert np.abs(mu - 2 / 3) < 1e-5
-    print("Passed fitting simple regression test!")
+    def test3():
+        """
+        Test regression without intercept/bias
+        """
+        bbr = BetaBernoulliDistribution().regressor()
+        obs = [1, 0]
+        covars = [1, -1]
+        res = bbr.fit(obs, covars, max_iters=1000)
+        # NOTE: This is an ill-conditioned problem!
+        assert not res["converged"]
+        phi, _ = bbr.get_parameters()
+        assert len(phi) == 1
+        mean = bbr.mean(covars)
+        for _obs, _mean in zip(obs, mean):
+            assert np.abs(_mean - _obs) < 1e-2
+        print("Passed ill-conditioned regression test!")
+
+    def test4():
+        """
+        Test regression with intercept/bias
+        """
+        bbr = BetaBernoulliDistribution().regressor()
+        obs = [1, 0, 1, 1, 0]
+        covars = [(1, z) for z in [1, 1, -1, -1, -1]]
+        res = bbr.fit(obs, covars)
+        assert res["converged"]
+        mean = bbr.mean((1, 1))
+        assert np.abs(mean - 0.5) < 1e-5
+        mean = bbr.mean([(1, -1)])
+        assert np.abs(mean - 2 / 3) < 1e-5
+        print("Passed fitting simple regression test!")
+
+    ####################################################
+    test1()
+    test2()
+    test3()
+    test4()

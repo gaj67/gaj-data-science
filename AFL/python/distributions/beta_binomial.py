@@ -12,7 +12,9 @@ chosen to be psi = n.
 # pylint: disable=wrong-import-position
 
 import numpy as np
-from scipy.special import loggamma, digamma  # pylint: disable=no-name-in-module
+
+# pylint: disable=no-name-in-module
+from scipy.special import loggamma, digamma, polygamma
 
 
 if __name__ == "__main__":
@@ -25,6 +27,7 @@ from .core.data_types import (
     Data,
     Value,
     Values,
+    Values2d,
     Vector,
 )
 
@@ -36,7 +39,7 @@ from .core.controllable import Controls
 #################################################################
 # Beta-binomial distribution
 
-
+DEFAULT_NUM_TRIALS = 1
 # Assume uniform prior:
 DEFAULT_ALPHA = 1
 DEFAULT_BETA = 1
@@ -82,7 +85,7 @@ class BetaBinomialDistribution(StandardDistribution):
         return 3
 
     def default_parameters(self) -> Values:
-        return (1, DEFAULT_ALPHA, DEFAULT_BETA)
+        return (DEFAULT_NUM_TRIALS, DEFAULT_ALPHA, DEFAULT_BETA)
 
     def check_parameters(self, *params: Values) -> bool:
         if not super().check_parameters(*params):
@@ -107,10 +110,24 @@ class BetaBinomialDistribution(StandardDistribution):
     # GradientOptimisable interface
 
     def estimate_parameters(self, data: Data, controls: Controls) -> Values:
+        # Use method of moments
         num_trials = self.get_parameters()[0]
-        alpha = DEFAULT_ALPHA
+        mu_t = data.mean() / num_trials
+        if num_trials > 1:
+            var_t = (data.variance() / num_trials - mu_t * (1 - mu_t)) / (
+                num_trials - 1
+            )
+            nu_est = var_t / (mu_t * (1 - mu_t))
+            alpha = nu_est * mu_t
+            beta = nu_est * (1 - mu_t)
+            if self.check_parameters(num_trials, alpha, beta):
+                return (num_trials, alpha, beta)
+        # Revert to beta mean estimate
         beta = DEFAULT_BETA
-        return (num_trials, alpha, beta)
+        alpha = beta * mu_t / (1 - mu_t)
+        if self.check_parameters(num_trials, alpha, beta):
+            return (num_trials, alpha, beta)
+        return (num_trials, DEFAULT_ALPHA, DEFAULT_BETA)
 
     def compute_scores(self, variate: Vector) -> Vector:
         num_trials, alpha, beta = self.get_parameters()
@@ -127,3 +144,55 @@ class BetaBinomialDistribution(StandardDistribution):
         g_a = term0 + digamma(alpha + variate) - digamma(alpha)
         g_b = term0 + digamma(beta + num_trials - variate) - digamma(beta)
         return (0, g_a, g_b)
+
+    def compute_hessian(self, variate: Vector) -> Values2d:
+        num_trials, alpha, beta = self.get_parameters()
+        # Use mean field approximation
+        mean = num_trials * alpha / (alpha + beta)
+        dterm0 = polygamma(1, alpha + beta) - polygamma(1, alpha + beta + num_trials)
+        h_aa = dterm0 + polygamma(1, alpha + mean) - polygamma(1, alpha)
+        h_ab = dterm0
+        h_bb = dterm0 + polygamma(1, beta + num_trials - mean) - polygamma(1, beta)
+        # Fudge Hessian to be invertible
+        return ((1, 0, 0), (0, h_aa, h_ab), (0, h_ab, h_bb))
+
+
+##########################################################
+
+if __name__ == "__main__":
+    import scipy.stats as s_stats
+
+    def test1():
+        """
+        Test default parameters
+        """
+        num_trials = 5
+        btd = BetaBinomialDistribution(num_trials)
+        assert btd.num_parameters() == 3
+        assert btd.get_parameters() == (num_trials, DEFAULT_ALPHA, DEFAULT_BETA)
+        print("Passed default parameter tests!")
+
+    def test2():
+        """
+        Test recovery of hierarchical model.
+        """
+        alpha0 = 5
+        beta0 = 3
+        num_samples = 1000
+        thetas = s_stats.beta.rvs(alpha0, beta0, size=num_samples, random_state=42)
+        num_trials = 20
+        obs = s_stats.binom.rvs(num_trials, thetas, size=num_samples, random_state=42)
+
+        bbd = BetaBinomialDistribution(num_trials)
+        res = bbd.fit(obs)
+        assert res["converged"]
+        _, alpha, beta = bbd.get_parameters()
+        p_tol = max(np.abs(alpha - alpha0), np.abs(beta - beta0))
+        print("Ground-truth: alpha =", alpha0, ", beta =", beta0)
+        print("Estimates: alpha =", alpha, ", beta =", beta)
+        print("MAD[params] =", p_tol)
+        print("Passed hierarchical modelling tests!")
+
+    ##########################################################
+    test1()
+    test2()

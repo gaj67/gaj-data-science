@@ -216,7 +216,7 @@ if __name__ == "__main__":
         Test recovery of hierarchical model.
         """
         alpha0 = 3
-        beta0 = 5
+        beta0 = 4
         num_samples = 2000
         thetas = s_stats.beta.rvs(alpha0, beta0 + 1, size=num_samples, random_state=42)
         obs = s_stats.geom.rvs(thetas, size=num_samples, random_state=42)
@@ -227,7 +227,7 @@ if __name__ == "__main__":
         alpha, beta = brd.get_parameters()  # pylint: disable=unbalanced-tuple-unpacking
         p_tol = max(np.abs(alpha - alpha0), np.abs(beta - beta0))
         print("Geround-truth:", alpha0, beta0)
-        print("Estimates:", *brd.get_parameters())
+        print("Estimates:", alpha, beta)
         print("MAD[params] =", p_tol)
         print("Passed hierarchical modelling tests!")
 

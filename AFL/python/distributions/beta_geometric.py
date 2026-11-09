@@ -58,10 +58,7 @@ DEFAULT_ALPHA = 1
 DEFAULT_BETA = 1
 
 
-@set_controls(
-    # Set broad tolerance due to difficulties with convergence
-    param_tol=1e-4
-)
+@set_controls(nonlinear=True)
 # pylint: disable=too-many-ancestors
 class BetaGeometricDistribution(StandardDistribution):
     """
@@ -208,10 +205,10 @@ if __name__ == "__main__":
         """
         obs = [1, 2, 5, 1, 3, 1]
         bgd = BetaGeometricDistribution()
-        res = bgd.fit(obs, least_squares=True)
+        res = bgd.fit(obs)
         assert res["converged"]
         bgd = BetaGeometricDistribution(symmetric=True)
-        res = bgd.fit(obs, least_squares=True)
+        res = bgd.fit(obs)
         assert res["converged"]
         print("Passed fitting multiple observations tests!")
 
@@ -219,25 +216,20 @@ if __name__ == "__main__":
         """
         Test recovery of hierarchical model.
         """
-        alpha0 = 5
-        beta0 = 3
-        num_samples = 1000
+        alpha0 = 3
+        beta0 = 5
+        num_samples = 2000
         thetas = s_stats.beta.rvs(alpha0, beta0, size=num_samples, random_state=42)
         obs = s_stats.geom.rvs(thetas, size=num_samples, random_state=42)
 
         bgd = BetaGeometricDistribution()
-        res = bgd.fit(obs, least_squares=True)
-        alpha, beta = bgd.get_parameters()  # pylint: disable=unbalanced-tuple-unpacking
-        p_tol = max(np.abs(alpha - alpha0), np.abs(beta - beta0))
-        print("Least-squares: MSE(fit) =", res["mse"], " MAD[params] =", p_tol)
-        assert res["mse"] < 1e-5
-
-        bgd = BetaGeometricDistribution()
-        res = bgd.fit(obs, param_tol=1e-4)
-        alpha, beta = bgd.get_parameters()  # pylint: disable=unbalanced-tuple-unpacking
-        p_tol = max(np.abs(alpha - alpha0), np.abs(beta - beta0))
-        print("Gradient ascent: MAD[params] =", p_tol)
+        res = bgd.fit(obs)
         assert res["converged"]
+        alpha, beta = bgd.get_parameters()  # pylint: disable=unbalanced-tuple-unpacking
+        p_tol = max(np.abs(alpha - alpha0), np.abs(beta - beta0))
+        print("Geround-truth:", alpha0, beta0)
+        print("Estimates:", alpha, beta)
+        print("MAD[params] =", p_tol)
         print("Passed hierarchical modelling tests!")
 
     # ======================================================================
